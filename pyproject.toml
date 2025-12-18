@@ -1,0 +1,26 @@
+[project]
+name = "learning-tinker"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "chz>=0.4.0",
+    "dotenv>=0.9.9",
+    "tinker>=0.7.0",
+    "tinker-cookbook",
+    "verifiers>=0.1.8.post2",
+]
+
+[project.optional-dependencies]
+dev = ["pytest", "pytest-cov", "black", "isort", "flake8"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/learning_tinker"]
+
+[tool.uv.sources]
+tinker-cookbook = { git = "https://github.com/thinking-machines-lab/tinker-cookbook.git" }
