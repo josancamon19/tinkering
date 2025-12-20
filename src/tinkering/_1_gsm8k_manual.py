@@ -6,6 +6,7 @@ import chz
 import datasets
 import tinker
 import torch
+import copy
 from tinker import types
 from dotenv import load_dotenv
 from tinker.types.tensor_data import TensorData
@@ -35,6 +36,7 @@ class Config:
     lora_rank: int = 32
     save_every: int = 20  # 0 = disabled
     max_tokens: int = 256
+    eval_every: int = 10
 
 
 def get_reward(response: str, answer: str) -> float:
@@ -99,6 +101,7 @@ def _get_sampling_futures(
     sampling_client: tinker.SamplingClient,
     sampling_params: tinker.types.SamplingParams,
     batch_rows: datasets.Dataset,
+    group_size: int | None = None,
 ) -> tuple[list[list[Future[types.SampleResponse]]], list[list[int]]]:
     """
     take every prompt future prefix and create future like a scheduling job for sampling
@@ -115,7 +118,7 @@ def _get_sampling_futures(
 
         # Generate response
         sample_futures: list[Future[types.SampleResponse]] = []
-        for _ in range(config.group_size):
+        for _ in range(group_size or config.group_size):
             sample_futures.append(
                 sampling_client.sample(
                     prompt=model_input,
@@ -196,6 +199,39 @@ def _map_logprobs_and_advantages_to_datums(
         training_datums.append(datum)
 
 
+def _run_eval(
+    config: Config,
+    ml_logger: logging.Logger,
+    renderer: renderers.Renderer,
+    test_dataset: datasets.Dataset,
+    sampling_client: tinker.SamplingClient,
+    sampling_params: tinker.types.SamplingParams,
+    step: int,
+    pass_at_k: int = 1,
+) -> None:
+    all_futures, _ = _get_sampling_futures(
+        config,
+        renderer,
+        sampling_client,
+        sampling_params,
+        test_dataset,
+        group_size=pass_at_k,
+    )
+    # breakpoint()
+    rewards: list[float] = []
+    for sample_futures, answer in zip(all_futures, test_dataset["answer"]):
+        # TODO: handle passing @1 right now, if wanna eval @k, then should await all, does training change at all given this param?
+        sample_result = sample_futures[0].result()
+        sampled_tokens = sample_result.sequences[0].tokens
+
+        parsed_message, _ = renderer.parse_response(sampled_tokens)
+        content = renderers.ensure_text(parsed_message["content"])
+        reward = get_reward(content, answer)
+        rewards.append(reward)
+
+    ml_logger.log_metrics({"eval/accuracy": sum(rewards) / len(rewards)}, step=step)
+
+
 def main(config: Config):
     # Setup logging
     ml_logger = _setup_logging(config)
@@ -215,6 +251,8 @@ def main(config: Config):
 
     n_train_batches = len(train_dataset) // config.batch_size
 
+    test_dataset = test_dataset.select(range(100))
+
     # Setup training client
     service_client = tinker.ServiceClient(base_url=config.base_url)
     training_client, start_batch = _get_new_or_resume(config, service_client)
@@ -222,6 +260,7 @@ def main(config: Config):
     sampling_params = tinker.types.SamplingParams(
         max_tokens=config.max_tokens, stop=renderer.get_stop_sequences()
     )
+
     # Optimizer step
     adam_params = types.AdamParams(
         learning_rate=config.learning_rate, beta1=0.9, beta2=0.95, eps=1e-8
@@ -261,6 +300,19 @@ def main(config: Config):
         sampling_client = service_client.create_sampling_client(
             model_path=sampling_path
         )
+
+        if step % config.eval_every == 0:
+            # TODO: Is this the most optimal way to run the evaluation or should it be like a scheduled job with everything running in parallel?
+            _run_eval(
+                config,
+                ml_logger,
+                renderer,
+                test_dataset,
+                sampling_client,
+                sampling_params,
+                step,
+            )
+
         # Set up sampling parameters
         training_datums: list[types.Datum] = []
         batch_rewards: list[float] = []
