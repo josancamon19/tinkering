@@ -211,6 +211,7 @@ def main(config: Config):
     dataset = datasets.load_dataset("openai/gsm8k", "main")
     assert isinstance(dataset, datasets.DatasetDict)
     train_dataset = dataset["train"]
+    test_dataset = dataset["test"]
 
     n_train_batches = len(train_dataset) // config.batch_size
 
