@@ -3603,6 +3603,7 @@ source = { editable = "." }
 dependencies = [
     { name = "chz" },
     { name = "dotenv" },
+    { name = "rich" },
     { name = "tinker" },
     { name = "tinker-cookbook" },
     { name = "verifiers" },
@@ -3627,6 +3628,7 @@ requires-dist = [
     { name = "isort", marker = "extra == 'dev'" },
     { name = "pytest", marker = "extra == 'dev'" },
     { name = "pytest-cov", marker = "extra == 'dev'" },
+    { name = "rich", specifier = ">=14.2.0" },
     { name = "tinker", specifier = ">=0.7.0" },
     { name = "tinker-cookbook", git = "https://github.com/thinking-machines-lab/tinker-cookbook.git" },
     { name = "verifiers", specifier = ">=0.1.8.post2" },
