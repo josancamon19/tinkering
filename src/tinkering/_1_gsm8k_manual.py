@@ -27,7 +27,8 @@ load_dotenv()
 class Config:
     base_url: str | None = None
     log_path: str = "./logs/gsm8k_manual"
-    model_name: str = "Qwen/Qwen3-4B-Instruct-2507"
+    # model_name: str = "Qwen/Qwen3-4B-Instruct-2507"
+    model_name: str = "Qwen/Qwen3-8B-Base"
     wandb_project: str = "tinkering"
     wandb_name: str | None = None
     batch_size: int = 128
@@ -201,14 +202,14 @@ def _map_logprobs_and_advantages_to_datums(
 
 def _run_eval(
     config: Config,
-    ml_logger: logging.Logger,
     renderer: renderers.Renderer,
     test_dataset: datasets.Dataset,
     sampling_client: tinker.SamplingClient,
     sampling_params: tinker.types.SamplingParams,
     step: int,
+    ml_logger: logging.Logger | None = None,
     pass_at_k: int = 1,
-) -> None:
+) -> tuple[float, list[float]]:
     all_futures, _ = _get_sampling_futures(
         config,
         renderer,
@@ -229,7 +230,10 @@ def _run_eval(
         reward = get_reward(content, answer)
         rewards.append(reward)
 
-    ml_logger.log_metrics({"eval/accuracy": sum(rewards) / len(rewards)}, step=step)
+    if ml_logger:
+        ml_logger.log_metrics({"eval/accuracy": sum(rewards) / len(rewards)}, step=step)
+
+    return sum(rewards) / len(rewards), rewards
 
 
 def main(config: Config):
@@ -305,11 +309,11 @@ def main(config: Config):
             # TODO: Is this the most optimal way to run the evaluation or should it be like a scheduled job with everything running in parallel?
             _run_eval(
                 config,
-                ml_logger,
                 renderer,
                 test_dataset,
                 sampling_client,
                 sampling_params,
+                ml_logger,
                 step,
             )
 
@@ -362,6 +366,15 @@ def main(config: Config):
         ml_logger.log_metrics(metrics, step=batch_idx)
 
     # Save final checkpoint
+    _run_eval(
+        config,
+        renderer,
+        test_dataset,
+        sampling_client,
+        sampling_params,
+        ml_logger,
+        n_train_batches,
+    )
     checkpoint_utils.save_checkpoint(
         training_client=training_client,
         name="final",
