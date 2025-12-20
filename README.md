@@ -1,0 +1,1 @@
+$$L = -\mathbb{E}\left[\frac{\pi_\theta(a|s)}{\pi_{\text{old}}(a|s)} \cdot A\right]$$
