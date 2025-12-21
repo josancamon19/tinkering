@@ -143,6 +143,22 @@ def get_conversation_preview(conversations, max_len: int = 100) -> str:
     return "No user message found"
 
 
+def estimate_conversation_tokens(conversations) -> int:
+    """Estimate total tokens in a conversation (approx len(chars) / 4)."""
+    if conversations is None or (
+        hasattr(conversations, "__len__") and len(conversations) == 0
+    ):
+        return 0
+    if hasattr(conversations, "tolist"):
+        conversations = conversations.tolist()
+    total_chars = 0
+    for turn in conversations:
+        content = turn.get("value", turn.get("content", ""))
+        if content:
+            total_chars += len(content)
+    return total_chars // 4
+
+
 def render_conversation_detail(conversation):
     """Render a conversation with thinking trace separation."""
     if hasattr(conversation, "tolist"):
@@ -235,16 +251,64 @@ def main():
     # Data Table Tab
     with tab_table:
         PAGE_SIZE = 50
-        col1, col2 = st.columns([1, 3])
-        with col1:
-            page = st.number_input("Page", min_value=1, value=1, step=1)
+
+        # Initialize pagination state
+        if "current_page" not in st.session_state:
+            st.session_state.current_page = 1
+        if "filters_hash" not in st.session_state:
+            st.session_state.filters_hash = None
+
+        # Reset to page 1 if filters changed
+        current_filters_hash = str(filters)
+        if st.session_state.filters_hash != current_filters_hash:
+            st.session_state.current_page = 1
+            st.session_state.filters_hash = current_filters_hash
+            st.session_state.pop("examples", None)
+
+        page = st.session_state.current_page
         offset = (page - 1) * PAGE_SIZE
 
-        if (
-            st.button("🔄 Load Page", type="primary")
-            or "examples" not in st.session_state
-        ):
-            with st.spinner("Fetching..."):
+        # Pagination controls
+        col_prev, col_info, col_next, col_jump = st.columns([1, 2, 1, 2])
+
+        with col_prev:
+            if st.button("← Previous", disabled=(page <= 1), use_container_width=True):
+                st.session_state.current_page -= 1
+                st.session_state.pop("examples", None)
+                st.rerun()
+
+        with col_info:
+            st.markdown(
+                f"<div style='text-align: center; padding: 0.5rem;'><strong>Page {page}</strong></div>",
+                unsafe_allow_html=True,
+            )
+
+        with col_next:
+            # Disable next if we got fewer results than PAGE_SIZE
+            examples_count = len(st.session_state.get("examples", []))
+            at_end = examples_count > 0 and examples_count < PAGE_SIZE
+            if st.button("Next →", disabled=at_end, use_container_width=True):
+                st.session_state.current_page += 1
+                st.session_state.pop("examples", None)
+                st.rerun()
+
+        with col_jump:
+            jump_page = st.number_input(
+                "Go to page",
+                min_value=1,
+                value=page,
+                step=1,
+                label_visibility="collapsed",
+                key="jump_page_input",
+            )
+            if jump_page != page:
+                st.session_state.current_page = jump_page
+                st.session_state.pop("examples", None)
+                st.rerun()
+
+        # Auto-load data if not cached
+        if "examples" not in st.session_state:
+            with st.spinner("Loading..."):
                 try:
                     st.session_state.examples = fetch_page(
                         filters, limit=PAGE_SIZE, offset=offset
@@ -267,6 +331,7 @@ def main():
                     "difficulty": ex.get("difficulty"),
                     "source": ex.get("source", "N/A"),
                     "domain": ex.get("domain", "N/A"),
+                    "tokens": estimate_conversation_tokens(ex.get("conversations", [])),
                     "preview": get_conversation_preview(
                         ex.get("conversations", []), max_len=80
                     ),
@@ -276,7 +341,7 @@ def main():
 
             df = pd.DataFrame(table_data)
             st.dataframe(
-                df[["difficulty", "source", "domain", "preview"]],
+                df[["difficulty", "source", "domain", "tokens", "preview"]],
                 use_container_width=True,
                 hide_index=False,
             )
@@ -299,7 +364,7 @@ def main():
             st.divider()
             render_conversation_detail(example.get("conversations", []))
         else:
-            st.info("Click **Load Page** to fetch data.")
+            st.info("No results found for the current filters.")
 
     # Stats Tab
     with tab_stats:
