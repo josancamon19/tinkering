@@ -52,10 +52,24 @@ async def run_evals(
     metrics = {}
     sampling_client = None
 
-    for evaluator in evaluators:
+    @scope
+    async def run_evaluator(evaluator: Evaluator) -> dict[str, float]:
+        update_scope_context(
+            {
+                "step": step,
+                "evaluator_name": type(evaluator).__name__,
+            }
+        )
         if isinstance(evaluator, TrainingClientEvaluator):
-            result = await evaluator(training_client, step=step)
+            update_scope_context({"evaluator_type": "TrainingClientEvaluator"})
+            try:
+                return await evaluator(training_client, step=step)
+            except TypeError:
+                return await evaluator(training_client)
         elif isinstance(evaluator, SamplingClientEvaluator):
+            update_scope_context({"evaluator_type": "SamplingClientEvaluator"})
+            # Create sampling client lazily, only when needed
+            nonlocal sampling_client
             if sampling_client is None:
                 sampling_client = (
                     await training_client.save_weights_and_get_sampling_client_async(
@@ -63,13 +77,15 @@ async def run_evals(
                     )
                 )
             try:
-                result = await evaluator(sampling_client, step=step)
-            except TypeError or AttributeError:
-                result = await evaluator(sampling_client)
+                return await evaluator(sampling_client, step=step)
+            except TypeError:
+                return await evaluator(sampling_client)
         else:
             raise ValueError(f"Unknown evaluator type: {type(evaluator)}")
 
-        metrics.update(result)
+    for evaluator in evaluators:
+        eval_metrics = await run_evaluator(evaluator)
+        metrics.update(eval_metrics)
 
     return metrics
 
