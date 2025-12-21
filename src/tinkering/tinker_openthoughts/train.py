@@ -22,7 +22,7 @@ from tinker_cookbook.utils.misc_utils import timed
 from tinker_cookbook.renderers import get_renderer, TrainOnWhat
 
 from tinkering.tinker_openthoughts.common import openthoughts_row_to_datum
-from tinkering.tinker_openthoughts.evals import NLLEvaluator, aime2025_evaluator
+from tinkering.tinker_openthoughts.evals import NLLEvaluator, aime2025_evaluator, gpqa_evaluator
 
 load_dotenv()
 logger = logging.getLogger(__name__)
@@ -49,6 +49,8 @@ class Config:
     batch_size: int = 32
     learning_rate: float = 1e-5
     epochs: int = 13
+    # TODO: write open thoughts series of posts
+    # TODO: setup some hp tunning with some hp finding tool
 
 
 def compute_cosine_lr_with_warmup(
@@ -134,15 +136,16 @@ async def main(config: Config):
 
     # TODO: couldn't figure the structure to pass as parameter
     evaluators = [
-        NLLEvaluator.from_split(test_dataset, renderer, max_tokens, name="test")
+        # NLLEvaluator.from_split(test_dataset, renderer, max_tokens, name="test")
     ]
     infrequent_evaluators = [
         # evaluator() for evaluator in config.infrequent_evaluator_builders
-        aime2025_evaluator(
-            renderer_name,
-            config.model_name,
-            log_dir=str(log_path / "inspect"),
-        )
+        # aime2025_evaluator(
+        #     renderer_name,
+        #     config.model_name,
+        #     log_dir=str(log_path / "inspect"),
+        # )
+        gpqa_evaluator(renderer_name, config.model_name, log_dir=str(log_path / "gpqa"))
     ]
 
     @scope

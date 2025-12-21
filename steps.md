@@ -1,4 +1,3 @@
-- [ ] setup fancy evaluation pipeline as in example (CEL and downstream tasks)
 - [ ] hp tune params for 4B instruct and 8B base
 - [ ] domain by domain training, compare downstream tasks results, match paper
 - [ ] single domain, difficulty, curriculum vs none
