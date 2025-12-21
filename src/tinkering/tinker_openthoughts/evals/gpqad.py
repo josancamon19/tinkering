@@ -1,29 +1,10 @@
-from typing import Optional
-
-from datasets import Dataset
-
-import tinker
-from tinker_cookbook.eval.evaluators import (
-    TrainingClientEvaluator,
-    SamplingClientEvaluator,
-)
-from tinker_cookbook.eval.inspect_evaluators import (
-    InspectEvaluator,
-    InspectEvaluatorBuilder,
-)
-from tinker_cookbook.supervised.common import compute_mean_nll
-from tinker_cookbook.renderers import Renderer, TrainOnWhat
-
-from tinkering.tinker_openthoughts.common import openthoughts_row_to_datum
+import asyncio
 import random
 import re
+from pathlib import Path
 import json
-import asyncio
-from typing import Any
+from typing import Any, Optional
 from datasets import load_dataset
-from tinker import types
-from tinker_cookbook import renderers
-from tinker_cookbook.tokenizer_utils import get_tokenizer
 from rich.progress import (
     Progress,
     TextColumn,
@@ -31,62 +12,10 @@ from rich.progress import (
     TaskProgressColumn,
     TimeRemainingColumn,
 )
-from pathlib import Path
-
-
-class NLLEvaluator(TrainingClientEvaluator):
-    def __init__(self, data: list[tinker.Datum], name: str = "test"):
-        self.name = name
-        self.data = data
-
-    async def __call__(
-        self, training_client: tinker.TrainingClient
-    ) -> dict[str, float]:
-        future = await training_client.forward_async(self.data, loss_fn="cross_entropy")
-        result = await future.result_async()
-        logprobs = [x["logprobs"] for x in result.loss_fn_outputs]
-        weights = [datum.loss_fn_inputs["weights"] for datum in self.data]
-        nll = compute_mean_nll(logprobs, weights)
-        key = f"{self.name}/nll"
-        return {key: nll}
-
-    @classmethod
-    def from_split(
-        cls,
-        split: Dataset,
-        renderer: Renderer,
-        max_tokens: int,
-        name: str = "test",
-        train_on_what: TrainOnWhat = TrainOnWhat.LAST_ASSISTANT_MESSAGE,
-    ) -> "NLLEvaluator":
-        """Create an NLLEvaluator from a dataset split (e.g., split["test"])."""
-        data = [
-            openthoughts_row_to_datum(
-                row, renderer, max_length=max_tokens, train_on_what=train_on_what
-            )
-            for row in split
-        ]
-        return cls(data, name=name)
-
-
-def aime2025_evaluator(
-    renderer_name: str,
-    model_name: str,
-    temperature: float = 0.0,
-    max_tokens: int = 16384,
-    limit: Optional[int] = None,
-    log_dir: Optional[str] = None,
-) -> SamplingClientEvaluator:
-    config = InspectEvaluatorBuilder(
-        tasks="inspect_evals/aime2025",
-        renderer_name=renderer_name,
-        model_name=model_name,
-        temperature=temperature,
-        max_tokens=max_tokens,
-        limit=limit,
-        log_dir=log_dir,
-    )
-    return InspectEvaluator(config)
+import tinker
+from tinker_cookbook import renderers
+from tinker_cookbook.eval.evaluators import SamplingClientEvaluator
+from tinker_cookbook.tokenizer_utils import get_tokenizer
 
 
 class GPQADiamondEvaluator(SamplingClientEvaluator):
@@ -154,7 +83,7 @@ class GPQADiamondEvaluator(SamplingClientEvaluator):
         temperature: float = 0.0,
         max_tokens: int = 16384,
     ) -> dict[str, float]:
-        sampling_params = types.SamplingParams(
+        sampling_params = tinker.types.SamplingParams(
             max_tokens=max_tokens,
             temperature=temperature,
             stop=self.renderer.get_stop_sequences(),
@@ -190,6 +119,7 @@ class GPQADiamondEvaluator(SamplingClientEvaluator):
             eval_task = progress.add_task(
                 "[cyan]Evaluating GPQA Diamond...", total=len(tasks)
             )
+            # TODO: is this the most efficient way to set this up? I think tinker has it's own simpler abstraction for this
             for coro in asyncio.as_completed(tasks):
                 idx, r = await coro
                 results[idx] = r
@@ -238,6 +168,3 @@ def gpqa_evaluator(renderer_name: str, model_name: str, log_dir: Optional[str] =
     return GPQADiamondEvaluator(
         model_name=model_name, renderer_name=renderer_name, log_dir=log_dir
     )
-
-
-# TODO: livecodebench

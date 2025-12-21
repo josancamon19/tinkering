@@ -22,7 +22,10 @@ from tinker_cookbook.utils.misc_utils import timed
 from tinker_cookbook.renderers import get_renderer, TrainOnWhat
 
 from tinkering.tinker_openthoughts.common import openthoughts_row_to_datum
-from tinkering.tinker_openthoughts.evals import NLLEvaluator, aime2025_evaluator, gpqa_evaluator
+from tinkering.tinker_openthoughts.evals.nll import NLLEvaluator
+from tinkering.tinker_openthoughts.evals.aime import aime2025_evaluator
+from tinkering.tinker_openthoughts.evals.gpqad import gpqa_evaluator
+from tinkering.tinker_openthoughts.evals.livecodebench import livecodebench_evaluator
 
 load_dotenv()
 logger = logging.getLogger(__name__)
@@ -145,7 +148,8 @@ async def main(config: Config):
         #     config.model_name,
         #     log_dir=str(log_path / "inspect"),
         # )
-        gpqa_evaluator(renderer_name, config.model_name, log_dir=str(log_path / "gpqa"))
+        # gpqa_evaluator(renderer_name, config.model_name, log_dir=str(log_path / "gpqa"))
+        livecodebench_evaluator(renderer_name, config.model_name, log_dir=str(log_path / "livecodebench"))
     ]
 
     @scope
