@@ -2,8 +2,14 @@
 Streamlit dashboard to explore OpenThoughts3-1.2M dataset.
 
 Prerequisites:
-    python -m tinkering._4b_compute_filters  # Run first to cache filter options
-    streamlit run src/tinkering/_4_exploring_openthoughts.py
+    # 1. Compute filter options (sources, domains, difficulty range)
+    python -m tinkering.exploring_openthoughts.filters
+    
+    # 2. Pre-compute stats for all filter combinations
+    python -m tinkering.exploring_openthoughts.stats
+    
+    # 3. Run the dashboard
+    streamlit run src/tinkering/exploring_openthoughts/main.py
 """
 
 import json
@@ -16,11 +22,12 @@ from tinkering.exploring_openthoughts.common import (
     get_duckdb_connection,
     get_parquet_url,
     load_filter_options,
-    get_cache_key,
-    load_cached_stats,
-    save_stats_to_cache,
     build_where_clause,
     HF_TOKEN,
+)
+from tinkering.exploring_openthoughts.stats import (
+    load_all_stats,
+    get_stats_for_filters,
 )
 
 
@@ -29,8 +36,22 @@ from tinkering.exploring_openthoughts.common import (
 # ============================================================================
 
 
-def fetch_page(filters: dict, limit: int = 50, offset: int = 0) -> list[dict]:
-    """Fetch a page of examples using DuckDB."""
+@st.cache_data(ttl=360000, show_spinner=False)
+def fetch_page(
+    difficulty_min: int,
+    difficulty_max: int,
+    source: str,
+    domain: str,
+    limit: int = 50,
+    offset: int = 0,
+) -> list[dict]:
+    """Fetch a page of examples using DuckDB. Results are cached for 1 hour."""
+    filters = {
+        "difficulty_min": difficulty_min,
+        "difficulty_max": difficulty_max,
+        "source": source,
+        "domain": domain,
+    }
     con = get_duckdb_connection()
     parquet_url = get_parquet_url()
     where_clause = build_where_clause(filters)
@@ -50,60 +71,6 @@ def fetch_page(filters: dict, limit: int = 50, offset: int = 0) -> list[dict]:
         if isinstance(ex.get("conversations"), str):
             ex["conversations"] = json.loads(ex["conversations"])
     return examples
-
-
-def compute_stats(filters: dict) -> dict:
-    """Compute dataset statistics using DuckDB."""
-    con = get_duckdb_connection()
-    parquet_url = get_parquet_url()
-    where_clause = build_where_clause(filters)
-
-    basic_stats = con.execute(f"""
-        SELECT 
-            COUNT(*) as total_rows,
-            COUNT(DISTINCT source) as unique_sources,
-            COUNT(DISTINCT domain) as unique_domains,
-            AVG(difficulty) as avg_difficulty,
-            MIN(difficulty) as min_difficulty,
-            MAX(difficulty) as max_difficulty
-        FROM read_parquet('{parquet_url}')
-        WHERE {where_clause}
-    """).fetchone()
-
-    difficulty_dist = con.execute(f"""
-        SELECT difficulty, COUNT(*) as count
-        FROM read_parquet('{parquet_url}')
-        WHERE {where_clause}
-        GROUP BY difficulty ORDER BY difficulty
-    """).fetchall()
-
-    source_dist = con.execute(f"""
-        SELECT source, COUNT(*) as count
-        FROM read_parquet('{parquet_url}')
-        WHERE {where_clause}
-        GROUP BY source ORDER BY count DESC
-    """).fetchall()
-
-    domain_dist = con.execute(f"""
-        SELECT domain, COUNT(*) as count
-        FROM read_parquet('{parquet_url}')
-        WHERE {where_clause}
-        GROUP BY domain ORDER BY count DESC
-    """).fetchall()
-
-    con.close()
-
-    return {
-        "total_rows": basic_stats[0],
-        "unique_sources": basic_stats[1],
-        "unique_domains": basic_stats[2],
-        "avg_difficulty": basic_stats[3],
-        "min_difficulty": basic_stats[4],
-        "max_difficulty": basic_stats[5],
-        "difficulty_distribution": {str(d): c for d, c in difficulty_dist},
-        "source_distribution": {s: c for s, c in source_dist},
-        "domain_distribution": {d: c for d, c in domain_dist},
-    }
 
 
 # ============================================================================
@@ -311,7 +278,12 @@ def main():
             with st.spinner("Loading..."):
                 try:
                     st.session_state.examples = fetch_page(
-                        filters, limit=PAGE_SIZE, offset=offset
+                        difficulty_min=filters["difficulty_min"],
+                        difficulty_max=filters["difficulty_max"],
+                        source=filters["source"],
+                        domain=filters["domain"],
+                        limit=PAGE_SIZE,
+                        offset=offset,
                     )
                     st.session_state.current_offset = offset
                 except Exception as e:
@@ -368,59 +340,56 @@ def main():
 
     # Stats Tab
     with tab_stats:
-        st.info(
-            "Stats use DuckDB to query remote parquet files. Results are cached locally."
-        )
-
-        if st.button("📊 Compute Statistics", type="primary"):
-            cache_key = get_cache_key(filters)
-            cached = load_cached_stats(cache_key)
-
-            if cached:
-                st.success("✅ Loaded from cache!")
-                stats = cached
+        # Load pre-computed stats
+        all_stats = load_all_stats()
+        
+        if all_stats is None:
+            st.error("❌ Pre-computed stats not found!")
+            st.markdown("""
+            Run the stats computation script first:
+            ```bash
+            python -m tinkering.exploring_openthoughts.stats
+            ```
+            This will pre-compute stats for all filter combinations.
+            """)
+        else:
+            # Get stats for current filter combination
+            stats = get_stats_for_filters(all_stats, source, domain)
+            
+            if stats is None:
+                st.warning(f"No cached stats for source='{source}', domain='{domain}'")
+                st.info("Run `python -m tinkering.exploring_openthoughts.stats --force` to recompute.")
             else:
-                with st.spinner("Computing..."):
-                    try:
-                        stats = compute_stats(filters)
-                        save_stats_to_cache(cache_key, stats)
-                        st.success("✅ Computed and cached!")
-                    except Exception as e:
-                        st.error(f"Error: {e}")
-                        stats = None
+                st.success(f"📊 Stats for: source=**{source}**, domain=**{domain}**")
+                st.caption("_Note: Difficulty slider affects data table only, not pre-computed stats._")
+                
+                col1, col2, col3, col4 = st.columns(4)
+                col1.metric("Total Rows", f"{stats['total_rows']:,}")
+                col2.metric("Avg Difficulty", f"{stats['avg_difficulty']:.2f}")
+                col3.metric("Unique Sources", stats["unique_sources"])
+                col4.metric("Unique Domains", stats["unique_domains"])
 
-            if stats:
-                st.session_state.current_stats = stats
+                col1, col2 = st.columns(2)
+                with col1:
+                    st.markdown("**Difficulty Distribution**")
+                    diff_df = pd.DataFrame(
+                        list(stats["difficulty_distribution"].items()),
+                        columns=["Difficulty", "Count"],
+                    )
+                    st.bar_chart(diff_df.set_index("Difficulty"))
+                with col2:
+                    st.markdown("**Source Distribution**")
+                    source_df = pd.DataFrame(
+                        list(stats["source_distribution"].items()),
+                        columns=["Source", "Count"],
+                    )
+                    st.bar_chart(source_df.set_index("Source"))
 
-        stats = st.session_state.get("current_stats")
-        if stats:
-            col1, col2, col3, col4 = st.columns(4)
-            col1.metric("Total Rows", f"{stats['total_rows']:,}")
-            col2.metric("Avg Difficulty", f"{stats['avg_difficulty']:.2f}")
-            col3.metric("Unique Sources", stats["unique_sources"])
-            col4.metric("Unique Domains", stats["unique_domains"])
-
-            col1, col2 = st.columns(2)
-            with col1:
-                st.markdown("**Difficulty Distribution**")
-                diff_df = pd.DataFrame(
-                    list(stats["difficulty_distribution"].items()),
-                    columns=["Difficulty", "Count"],
+                st.markdown("**Domain Distribution**")
+                domain_df = pd.DataFrame(
+                    list(stats["domain_distribution"].items()), columns=["Domain", "Count"]
                 )
-                st.bar_chart(diff_df.set_index("Difficulty"))
-            with col2:
-                st.markdown("**Source Distribution**")
-                source_df = pd.DataFrame(
-                    list(stats["source_distribution"].items()),
-                    columns=["Source", "Count"],
-                )
-                st.bar_chart(source_df.set_index("Source"))
-
-            st.markdown("**Domain Distribution**")
-            domain_df = pd.DataFrame(
-                list(stats["domain_distribution"].items()), columns=["Domain", "Count"]
-            )
-            st.bar_chart(domain_df.set_index("Domain"))
+                st.bar_chart(domain_df.set_index("Domain"))
 
 
 if __name__ == "__main__":
