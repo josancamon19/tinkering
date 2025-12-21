@@ -231,11 +231,17 @@ class LiveCodeBenchEvaluator(SamplingClientEvaluator):
 
 
 def livecodebench_evaluator(
-    renderer_name: str, model_name: str, log_dir: Optional[str] = None
+    renderer_name: str,
+    model_name: str,
+    max_samples: int | None = None,
+    log_dir: Optional[str] = None,
 ):
     """Builder function for the trainer."""
     return LiveCodeBenchEvaluator(
-        model_name=model_name, renderer_name=renderer_name, log_dir=log_dir
+        model_name=model_name,
+        renderer_name=renderer_name,
+        max_samples=max_samples,
+        log_dir=log_dir,
     )
 
 

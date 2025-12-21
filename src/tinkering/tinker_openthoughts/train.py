@@ -52,7 +52,6 @@ class Config:
     batch_size: int = 32
     learning_rate: float = 1e-5
     epochs: int = 13
-    # TODO: write open thoughts series of posts
     # TODO: setup some hp tunning with some hp finding tool
 
 
@@ -149,7 +148,7 @@ async def main(config: Config):
         #     log_dir=str(log_path / "inspect"),
         # )
         # gpqa_evaluator(renderer_name, config.model_name, log_dir=str(log_path / "gpqa"))
-        livecodebench_evaluator(renderer_name, config.model_name, log_dir=str(log_path / "livecodebench"))
+        livecodebench_evaluator(renderer_name, config.model_name, max_samples=20, log_dir=str(log_path / "livecodebench"))
     ]
 
     @scope
