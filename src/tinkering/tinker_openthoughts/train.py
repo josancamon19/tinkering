@@ -2,8 +2,7 @@ import logging
 import asyncio
 import time
 import chz
-from datasets import concatenate_datasets
-from datasets.packaged_modules.cache.cache import datasets
+from datasets import concatenate_datasets, load_from_disk
 from tinker_cookbook import checkpoint_utils, model_info
 from tinker_cookbook.tokenizer_utils import get_tokenizer
 from tinker_cookbook.utils import ml_log
@@ -17,11 +16,13 @@ from tinker_cookbook.supervised.train import (
     EvaluatorBuilder,
     SubmittedBatch,
     compute_mean_nll,
+    run_evals,
 )
 from tinker_cookbook.utils.misc_utils import timed
 from tinker_cookbook.renderers import get_renderer, TrainOnWhat
 
 from tinkering.tinker_openthoughts.common import openthoughts_row_to_datum
+from tinkering.tinker_openthoughts.evals import NLLEvaluator
 
 load_dotenv()
 logger = logging.getLogger(__name__)
@@ -34,7 +35,6 @@ class Config:
     model_name: str = "Qwen/Qwen3-4B-Instruct-2507"
     # model_name: str = "Qwen/Qwen3-8B-Base"
 
-    valuator_builders: list[EvaluatorBuilder] = chz.field(default_factory=list)
     infrequent_evaluator_builders: list[EvaluatorBuilder] = chz.field(
         default_factory=list
     )
@@ -93,12 +93,13 @@ async def main(config: Config):
     if not Path(f"./subsets/{config.dataset_name}/dataset").exists():
         raise FileNotFoundError(f"Dataset {config.dataset_name} not found")
 
-    dataset = datasets.load_from_disk(f"./subsets/{config.dataset_name}/dataset")
+    dataset = load_from_disk(f"./subsets/{config.dataset_name}/dataset")
     split = dataset.train_test_split(train_size=config.train_split)
     max_tokens = int(config.dataset_name.split("sources_t")[1].split("_")[0])
 
     # Repeat train dataset for multiple epochs (simplifies batch indexing)
     train_dataset = concatenate_datasets([split["train"]] * config.epochs)
+    test_dataset = split["test"]
 
     # Training loop counts
     batches_per_epoch = len(split["train"]) // config.batch_size
@@ -116,6 +117,14 @@ async def main(config: Config):
     renderer_name = model_info.get_recommended_renderer_name(config.model_name)
     renderer = get_renderer(renderer_name, tokenizer)
     logger.info(f"Using renderer: {renderer_name}")
+
+    # TODO: couldn't figure the structure to pass as parameter
+    evaluators = [
+        NLLEvaluator.from_split(test_dataset, renderer, max_tokens, name="test")
+    ]
+    infrequent_evaluators = [
+        # evaluator() for evaluator in config.infrequent_evaluator_builders
+    ]
 
     @scope
     async def submit_batch(epoch_idx: int, batch_idx: int) -> SubmittedBatch:
@@ -151,21 +160,21 @@ async def main(config: Config):
             ]
 
         # Trigger evaluations BEFORE submitting training operations so they snapshot pre-step weights
-        # eval_metrics = None
-        # if evaluators and config.eval_every > 0 and step % config.eval_every == 0:
-        #     with timed("evals", metrics):
-        #         eval_metrics = await run_evals(evaluators, training_client, step)
+        eval_metrics = None
+        if evaluators and config.eval_every > 0 and step % config.eval_every == 0:
+            with timed("evals", metrics):
+                eval_metrics = await run_evals(evaluators, training_client, step)
 
-        # infrequent_eval_metrics = None
-        # if (
-        #     infrequent_evaluators
-        #     and config.infrequent_eval_every > 0
-        #     and step % config.infrequent_eval_every == 0
-        # ):
-        #     with timed("infrequent_evals", metrics):
-        #         infrequent_eval_metrics = await run_evals(
-        #             infrequent_evaluators, training_client, step
-        #         )
+        infrequent_eval_metrics = None
+        if (
+            infrequent_evaluators
+            and config.infrequent_eval_every > 0
+            and step % config.infrequent_eval_every == 0
+        ):
+            with timed("infrequent_evals", metrics):
+                infrequent_eval_metrics = await run_evals(
+                    infrequent_evaluators, training_client, step
+                )
 
         fwd_bwd_future = await training_client.forward_backward_async(
             data, loss_fn="cross_entropy"
@@ -181,8 +190,8 @@ async def main(config: Config):
             epoch_idx=epoch_idx,
             batch_idx=batch_idx,
             batch_start_time=batch_start_time,
-            # eval_metrics=eval_metrics,
-            # infrequent_eval_metrics=infrequent_eval_metrics,
+            eval_metrics=eval_metrics,
+            infrequent_eval_metrics=infrequent_eval_metrics,
         )
 
     @scope
