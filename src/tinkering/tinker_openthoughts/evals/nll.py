@@ -12,7 +12,9 @@ class NLLEvaluator(TrainingClientEvaluator):
         self.data = data
 
     async def __call__(
-        self, training_client: tinker.TrainingClient
+        self,
+        training_client: tinker.TrainingClient,
+        step: int,
     ) -> dict[str, float]:
         future = await training_client.forward_async(self.data, loss_fn="cross_entropy")
         result = await future.result_async()

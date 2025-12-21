@@ -62,7 +62,10 @@ async def run_evals(
                         f"evals_step_{step}"
                     )
                 )
-            result = await evaluator(sampling_client, step=step)
+            try:
+                result = await evaluator(sampling_client, step=step)
+            except TypeError or AttributeError:
+                result = await evaluator(sampling_client)
         else:
             raise ValueError(f"Unknown evaluator type: {type(evaluator)}")
 
