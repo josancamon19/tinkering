@@ -50,24 +50,31 @@ class LiveCodeBenchEvaluator(SamplingClientEvaluator):
         self.log_dir = log_dir
         self.seed = seed
 
-        # Load dataset
-        # Note: Using version_tag="release_v5" as in reference
-        lcb_codegen = load_dataset(
-            "livecodebench/code_generation_lite",
-            version_tag="release_v5",
-            split="test",
-        )
+        # Load dataset directly as JSON to avoid deprecated loading script
+        # The livecodebench/code_generation_lite dataset uses a loading script
+        # which is no longer supported by HuggingFace datasets
+        data_files = [
+            "hf://datasets/livecodebench/code_generation_lite/test.jsonl",
+            "hf://datasets/livecodebench/code_generation_lite/test2.jsonl",
+            "hf://datasets/livecodebench/code_generation_lite/test3.jsonl",
+            "hf://datasets/livecodebench/code_generation_lite/test4.jsonl",
+            "hf://datasets/livecodebench/code_generation_lite/test5.jsonl",
+        ]
+        lcb_codegen = load_dataset("json", data_files=data_files, split="train")
 
         def filter_by_contest_date(example):
-            target_months = [
-                "2024-08",
-                "2024-09",
-                "2024-10",
-                "2024-11",
-                "2024-12",
-                "2025-01",
-            ]
-            return example["contest_date"][:7] in target_months
+            # contest_date is a datetime object when loaded via JSON
+            dt = example["contest_date"]
+            # Filter for Aug 2024 - Jan 2025
+            if dt.year == 2024 and dt.month >= 8:
+                return True
+            if dt.year == 2025 and dt.month == 1:
+                return True
+            return False
+
+        # def filter_by_contest_date2(example):
+        #     dt = example["contest_date"] # only 7 from 2025
+        #     return dt.year == 2025:
 
         ds = lcb_codegen.filter(filter_by_contest_date)
 
