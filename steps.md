@@ -1,0 +1,6 @@
+- [ ] setup fancy evaluation pipeline as in example (CEL and downstream tasks)
+- [ ] hp tune params for 4B instruct and 8B base
+- [ ] domain by domain training, compare downstream tasks results, match paper
+- [ ] single domain, difficulty, curriculum vs none
+- [ ] can some of this tasks be verifiable, SFT vs RL on them, what sharpens the distribution better, LM Judge for RL? sort of denser reward
+- [ ] dataset viz, I don't like dropdown q selection + what about ablations with same question just different response? vs individual ones?

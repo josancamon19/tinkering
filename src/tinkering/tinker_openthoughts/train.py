@@ -5,7 +5,6 @@ import chz
 from datasets import concatenate_datasets
 from datasets.packaged_modules.cache.cache import datasets
 from tinker_cookbook import checkpoint_utils, model_info
-from tinker_cookbook import renderers
 from tinker_cookbook.tokenizer_utils import get_tokenizer
 from tinker_cookbook.utils import ml_log
 import tinker
@@ -15,19 +14,42 @@ from tinker import types
 from tinker_cookbook.utils.trace import scope, update_scope_context
 import math
 from tinker_cookbook.supervised.train import (
+    EvaluatorBuilder,
     SubmittedBatch,
     compute_mean_nll,
 )
-from tinker_cookbook.supervised.common import datum_from_model_input_weights
 from tinker_cookbook.utils.misc_utils import timed
-from tinker_cookbook.renderers import (
-    get_renderer,
-    Message,
-    TrainOnWhat,
-)
+from tinker_cookbook.renderers import get_renderer, TrainOnWhat
+
+from tinkering.tinker_openthoughts.common import openthoughts_row_to_datum
 
 load_dotenv()
 logger = logging.getLogger(__name__)
+
+
+@chz.chz
+class Config:
+    log_path: str = "./logs/openthoughts"
+    wandb_project: str = "tinkering-openthoughts"
+    model_name: str = "Qwen/Qwen3-4B-Instruct-2507"
+    # model_name: str = "Qwen/Qwen3-8B-Base"
+
+    valuator_builders: list[EvaluatorBuilder] = chz.field(default_factory=list)
+    infrequent_evaluator_builders: list[EvaluatorBuilder] = chz.field(
+        default_factory=list
+    )
+    save_every: int = 20
+    eval_every: int = 10
+    infrequent_eval_every: int = 100
+
+    dataset_name: str = "openthoughts_code_all_sources_t4096_n100"
+    train_split: float = 0.8
+    lora_rank: int = 32
+
+    # hp's
+    batch_size: int = 32
+    learning_rate: float = 1e-5
+    epochs = 13
 
 
 def compute_cosine_lr_with_warmup(
@@ -55,62 +77,6 @@ def compute_cosine_lr_with_warmup(
         # Cosine decay from 1 to 0 over remaining steps
         progress = (step - warmup_steps) / (total_steps - warmup_steps)
         return 0.5 * (1 + math.cos(math.pi * progress))
-
-
-def openthoughts_row_to_datum(
-    row: dict,
-    renderer: renderers.Renderer,
-    max_length: int | None = None,
-    train_on_what: TrainOnWhat = TrainOnWhat.LAST_ASSISTANT_MESSAGE,
-) -> tinker.Datum:
-    """
-    Convert an OpenThoughts dataset row to a tinker.Datum.
-
-    OpenThoughts format:
-    {
-        "conversations": [
-            {"from": "human", "value": "..."},
-            {"from": "gpt", "value": "<think>...</think>..."}
-        ]
-    }
-
-    This converts to chat Message format and uses the renderer to build
-    a supervised example with proper loss masking (only train on assistant response).
-    """
-    conversations = row["conversations"]
-    messages: list[Message] = []
-
-    for turn in conversations:
-        role = "user" if turn["from"] == "human" else "assistant"
-        messages.append(Message(role=role, content=turn["value"]))
-
-    # Build the supervised example using the renderer
-    # This handles tokenization, masking, and proper formatting for the model
-    # weights it's such a bad name for a mask.!!!
-    model_input, weights = renderer.build_supervised_example(
-        messages, train_on_what=train_on_what
-    )
-
-    return datum_from_model_input_weights(model_input, weights, max_length)
-
-
-@chz.chz
-class Config:
-    log_path: str = "./logs/openthoughts"
-    model_name: str = "Qwen/Qwen3-4B-Instruct-2507"
-    # model_name: str = "Qwen/Qwen3-8B-Base"
-    wandb_project: str = "tinkering-openthoughts"
-    eval_every: int = 10
-    save_every: int = 20
-    lora_rank: int = 32
-
-    dataset_name: str = "openthoughts_code_all_sources_t4096_n100"
-    train_split: float = 0.8
-
-    # hp's
-    batch_size: int = 32
-    learning_rate: float = 1e-5
-    epochs = 13
 
 
 def _setup_logging(config: Config):
