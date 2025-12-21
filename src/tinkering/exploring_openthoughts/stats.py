@@ -17,6 +17,7 @@ from tinkering.exploring_openthoughts.common import (
     load_cached_stats,
     save_stats_to_cache,
     build_where_clause,
+    execute_with_retry,
     CACHE_DIR,
     HF_TOKEN,
 )
@@ -44,7 +45,7 @@ def compute_stats(filters: dict) -> dict:
         FROM read_parquet('{parquet_url}')
         WHERE {where_clause}
     """
-    basic_stats = con.execute(count_query).fetchone()
+    basic_stats = execute_with_retry(con, count_query, "fetchone")
     print(f"  Total rows: {basic_stats[0]:,}")
 
     print("Computing difficulty distribution...")
@@ -55,7 +56,7 @@ def compute_stats(filters: dict) -> dict:
         GROUP BY difficulty
         ORDER BY difficulty
     """
-    difficulty_dist = con.execute(difficulty_query).fetchall()
+    difficulty_dist = execute_with_retry(con, difficulty_query, "fetchall")
 
     print("Computing source distribution...")
     source_query = f"""
@@ -65,7 +66,7 @@ def compute_stats(filters: dict) -> dict:
         GROUP BY source
         ORDER BY count DESC
     """
-    source_dist = con.execute(source_query).fetchall()
+    source_dist = execute_with_retry(con, source_query, "fetchall")
 
     print("Computing domain distribution...")
     domain_query = f"""
@@ -75,7 +76,7 @@ def compute_stats(filters: dict) -> dict:
         GROUP BY domain
         ORDER BY count DESC
     """
-    domain_dist = con.execute(domain_query).fetchall()
+    domain_dist = execute_with_retry(con, domain_query, "fetchall")
 
     con.close()
 
@@ -105,6 +106,11 @@ def main():
     parser.add_argument(
         "--force", action="store_true", help="Force recompute even if cached"
     )
+    parser.add_argument(
+        "--no-filters",
+        action="store_true",
+        help="Compute stats for entire dataset without any filters",
+    )
     args = parser.parse_args()
 
     print("=" * 60)
@@ -115,32 +121,39 @@ def main():
         print("⚠️  Warning: No HF_TOKEN set. You may hit rate limits.")
         print()
 
-    # Load filter options to get defaults
-    options = load_filter_options()
-    if options:
-        diff_min = (
-            args.difficulty_min
-            if args.difficulty_min is not None
-            else options["difficulty_min"]
-        )
-        diff_max = (
-            args.difficulty_max
-            if args.difficulty_max is not None
-            else options["difficulty_max"]
-        )
-    else:
-        diff_min = args.difficulty_min if args.difficulty_min is not None else 1
-        diff_max = args.difficulty_max if args.difficulty_max is not None else 10
-        print(
-            "⚠️  Filter options not cached. Run _4b_compute_filters.py first for accurate defaults."
-        )
+    if args.no_filters:
+        # No filters - get full dataset stats
+        diff_min = None
+        diff_max = None
+        print("Running with NO FILTERS to get full dataset stats.")
         print()
+    else:
+        # Load filter options to get defaults
+        options = load_filter_options()
+        if options:
+            diff_min = (
+                args.difficulty_min
+                if args.difficulty_min is not None
+                else options["difficulty_min"]
+            )
+            diff_max = (
+                args.difficulty_max
+                if args.difficulty_max is not None
+                else options["difficulty_max"]
+            )
+        else:
+            diff_min = args.difficulty_min if args.difficulty_min is not None else 1
+            diff_max = args.difficulty_max if args.difficulty_max is not None else 10
+            print(
+                "⚠️  Filter options not cached. Run _4b_compute_filters.py first for accurate defaults."
+            )
+            print()
 
     filters = {
         "difficulty_min": diff_min,
         "difficulty_max": diff_max,
-        "source": args.source,
-        "domain": args.domain,
+        "source": args.source if not args.no_filters else "all",
+        "domain": args.domain if not args.no_filters else "all",
     }
 
     print(f"Filters: {filters}")

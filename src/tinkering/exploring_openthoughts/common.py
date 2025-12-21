@@ -5,6 +5,7 @@ Shared configuration and utilities for OpenThoughts dataset exploration.
 import json
 import hashlib
 import os
+import time
 from pathlib import Path
 from typing import Any
 
@@ -102,3 +103,33 @@ def build_where_clause(filters: dict[str, Any]) -> str:
 
     return " AND ".join(conditions) if conditions else "1=1"
 
+
+# ============================================================================
+# Query Execution with Retry
+# ============================================================================
+
+RETRY_DELAY_SECONDS = 61
+
+
+def execute_with_retry(
+    con, query: str, fetch_method: str = "fetchall", max_retries: int = 5
+):
+    """Execute a query with retry logic on failure (handles HuggingFace rate limits)."""
+    attempts = 0
+    while True:
+        try:
+            result = con.execute(query)
+            if fetch_method == "fetchall":
+                return result.fetchall()
+            elif fetch_method == "fetchone":
+                return result.fetchone()
+            else:
+                return result
+        except Exception as e:
+            attempts += 1
+            if max_retries and attempts >= max_retries:
+                print(f"  ❌ Query failed after {attempts} attempts: {e}")
+                raise
+            print(f"  ⚠️  Query failed: {e}")
+            print(f"  Retrying in {RETRY_DELAY_SECONDS} seconds... (attempt {attempts})")
+            time.sleep(RETRY_DELAY_SECONDS)

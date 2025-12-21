@@ -1,0 +1,28 @@
+{
+  "total_rows": 1200000,
+  "unique_sources": 5,
+  "unique_domains": 3,
+  "avg_difficulty": 7.966208,
+  "min_difficulty": 6,
+  "max_difficulty": 10,
+  "difficulty_distribution": {
+    "6": 3520,
+    "7": 44016,
+    "8": 163184,
+    "9": 35952,
+    "10": 3328,
+    "None": 950000
+  },
+  "source_distribution": {
+    "ai2-adapt-dev/openmath-2-math": 850000,
+    "nvidia/OpenCodeReasoning": 125840,
+    "stackexchange_codegolf": 124160,
+    "organic-chemistry-questions": 59904,
+    "stackexchange-physics": 40096
+  },
+  "domain_distribution": {
+    "math": 850000,
+    "code": 250000,
+    "science": 100000
+  }
+}

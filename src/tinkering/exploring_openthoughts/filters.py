@@ -11,6 +11,7 @@ from tinkering.exploring_openthoughts.common import (
     get_parquet_url,
     load_filter_options,
     save_filter_options,
+    execute_with_retry,
     OPTIONS_CACHE_FILE,
     HF_TOKEN,
 )
@@ -23,23 +24,29 @@ def compute_filter_options() -> dict:
     parquet_url = get_parquet_url()
 
     print("Fetching unique sources...")
-    sources = con.execute(
-        f"SELECT DISTINCT source FROM read_parquet('{parquet_url}')"
-    ).fetchall()
+    sources = execute_with_retry(
+        con,
+        f"SELECT DISTINCT source FROM read_parquet('{parquet_url}')",
+        "fetchall",
+    )
     sources = sorted([s[0] for s in sources if s[0]])
     print(f"  Found {len(sources)} sources")
 
     print("Fetching unique domains...")
-    domains = con.execute(
-        f"SELECT DISTINCT domain FROM read_parquet('{parquet_url}')"
-    ).fetchall()
+    domains = execute_with_retry(
+        con,
+        f"SELECT DISTINCT domain FROM read_parquet('{parquet_url}')",
+        "fetchall",
+    )
     domains = sorted([d[0] for d in domains if d[0]])
     print(f"  Found {len(domains)} domains")
 
     print("Fetching difficulty range...")
-    diff_range = con.execute(
-        f"SELECT MIN(difficulty), MAX(difficulty) FROM read_parquet('{parquet_url}')"
-    ).fetchone()
+    diff_range = execute_with_retry(
+        con,
+        f"SELECT MIN(difficulty), MAX(difficulty) FROM read_parquet('{parquet_url}')",
+        "fetchone",
+    )
     print(f"  Difficulty range: {diff_range[0]} - {diff_range[1]}")
 
     con.close()

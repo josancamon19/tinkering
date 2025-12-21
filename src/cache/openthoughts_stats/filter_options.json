@@ -1,0 +1,16 @@
+{
+  "sources": [
+    "ai2-adapt-dev/openmath-2-math",
+    "nvidia/OpenCodeReasoning",
+    "organic-chemistry-questions",
+    "stackexchange-physics",
+    "stackexchange_codegolf"
+  ],
+  "domains": [
+    "code",
+    "math",
+    "science"
+  ],
+  "difficulty_min": 6,
+  "difficulty_max": 10
+}
