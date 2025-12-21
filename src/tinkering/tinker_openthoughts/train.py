@@ -16,7 +16,11 @@ from tinker_cookbook.supervised.train import (
     EvaluatorBuilder,
     SubmittedBatch,
     compute_mean_nll,
-    run_evals,
+)
+from tinker_cookbook.eval.evaluators import (
+    Evaluator,
+    SamplingClientEvaluator,
+    TrainingClientEvaluator,
 )
 from tinker_cookbook.utils.misc_utils import timed
 from tinker_cookbook.renderers import get_renderer, TrainOnWhat
@@ -31,6 +35,42 @@ load_dotenv()
 logger = logging.getLogger(__name__)
 
 
+@scope
+async def run_evals(
+    evaluators: list[Evaluator],
+    training_client: tinker.TrainingClient,
+    step: int,
+) -> dict[str, float]:
+    """
+    Run evaluators and pass step to each one.
+
+    This is a custom version that passes `step` to evaluators so they can
+    include it in their logs for tracing training evolution.
+    """
+    update_scope_context({"step": step})
+
+    metrics = {}
+    sampling_client = None
+
+    for evaluator in evaluators:
+        if isinstance(evaluator, TrainingClientEvaluator):
+            result = await evaluator(training_client, step=step)
+        elif isinstance(evaluator, SamplingClientEvaluator):
+            if sampling_client is None:
+                sampling_client = (
+                    await training_client.save_weights_and_get_sampling_client_async(
+                        f"evals_step_{step}"
+                    )
+                )
+            result = await evaluator(sampling_client, step=step)
+        else:
+            raise ValueError(f"Unknown evaluator type: {type(evaluator)}")
+
+        metrics.update(result)
+
+    return metrics
+
+
 @chz.chz
 class Config:
     wandb_project: str = "tinkering-openthoughts"
@@ -42,7 +82,7 @@ class Config:
     )
     save_every: int = 20
     eval_every: int = 10
-    infrequent_eval_every: int = 20
+    infrequent_eval_every: int = 50
 
     dataset_name: str = "openthoughts_code_all_sources_t4096_n100"
     train_split: float = 0.8
@@ -138,17 +178,24 @@ async def main(config: Config):
 
     # TODO: couldn't figure the structure to pass as parameter
     evaluators = [
-        # NLLEvaluator.from_split(test_dataset, renderer, max_tokens, name="test")
+        NLLEvaluator.from_split(test_dataset, renderer, max_tokens, name="test")
     ]
     infrequent_evaluators = [
         # evaluator() for evaluator in config.infrequent_evaluator_builders
-        # aime2025_evaluator(
-        #     renderer_name,
-        #     config.model_name,
-        #     log_dir=str(log_path / "inspect"),
-        # )
-        # gpqa_evaluator(renderer_name, config.model_name, log_dir=str(log_path / "gpqa"))
-        livecodebench_evaluator(renderer_name, config.model_name, max_samples=20, log_dir=str(log_path / "livecodebench"))
+        aime2025_evaluator(
+            renderer_name,
+            config.model_name,
+            log_dir=str(log_path / "inspect"),
+        ),
+        gpqa_evaluator(
+            renderer_name, config.model_name, log_dir=str(log_path / "gpqa")
+        ),
+        livecodebench_evaluator(
+            renderer_name,
+            config.model_name,
+            max_samples=20,
+            log_dir=str(log_path / "livecodebench"),
+        ),
     ]
 
     @scope

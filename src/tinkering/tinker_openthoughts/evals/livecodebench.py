@@ -104,6 +104,7 @@ class LiveCodeBenchEvaluator(SamplingClientEvaluator):
         sampling_client: tinker.SamplingClient,
         temperature: float = 0.0,
         max_tokens: int = 16384,
+        step: Optional[int] = None,
     ) -> dict[str, float]:
         sampling_params = types.SamplingParams(
             max_tokens=max_tokens,
@@ -221,9 +222,12 @@ class LiveCodeBenchEvaluator(SamplingClientEvaluator):
 
         if self.log_dir:
             log_path = Path(self.log_dir)
+            if step is not None:
+                log_path = log_path / f"step_{step:06d}"
             log_path.mkdir(parents=True, exist_ok=True)
             with open(log_path / "livecodebench_results.jsonl", "w") as f:
                 for res in logged_results:
+                    res["step"] = step
                     f.write(json.dumps(res) + "\n")
 
         accuracy = num_correct / len(self.dataset) if self.dataset else 0
