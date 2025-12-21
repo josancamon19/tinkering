@@ -7,11 +7,14 @@ requires-python = ">=3.11"
 dependencies = [
     "chz>=0.4.0",
     "dotenv>=0.9.9",
+    "duckdb>=1.4.3",
     "rich>=14.2.0",
+    "streamlit>=1.52.2",
     "tinker>=0.7.0",
     "tinker-cookbook",
     "verifiers>=0.1.8.post2",
     "wandb>=0.23.1",
+    "watchdog>=6.0.0",
 ]
 
 [project.optional-dependencies]
