@@ -22,7 +22,7 @@ from tinker_cookbook.utils.misc_utils import timed
 from tinker_cookbook.renderers import get_renderer, TrainOnWhat
 
 from tinkering.tinker_openthoughts.common import openthoughts_row_to_datum
-from tinkering.tinker_openthoughts.evals import NLLEvaluator
+from tinkering.tinker_openthoughts.evals import NLLEvaluator, aime2025_evaluator
 
 load_dotenv()
 logger = logging.getLogger(__name__)
@@ -30,7 +30,6 @@ logger = logging.getLogger(__name__)
 
 @chz.chz
 class Config:
-    log_path: str = "./logs/openthoughts"
     wandb_project: str = "tinkering-openthoughts"
     model_name: str = "Qwen/Qwen3-4B-Instruct-2507"
     # model_name: str = "Qwen/Qwen3-8B-Base"
@@ -40,7 +39,7 @@ class Config:
     )
     save_every: int = 20
     eval_every: int = 10
-    infrequent_eval_every: int = 100
+    infrequent_eval_every: int = 20
 
     dataset_name: str = "openthoughts_code_all_sources_t4096_n100"
     train_split: float = 0.8
@@ -49,7 +48,7 @@ class Config:
     # hp's
     batch_size: int = 32
     learning_rate: float = 1e-5
-    epochs = 13
+    epochs: int = 13
 
 
 def compute_cosine_lr_with_warmup(
@@ -79,9 +78,9 @@ def compute_cosine_lr_with_warmup(
         return 0.5 * (1 + math.cos(math.pi * progress))
 
 
-def _setup_logging(config: Config):
+def _setup_logging(config: Config, log_path: Path):
     return ml_log.setup_logging(
-        log_dir=config.log_path,
+        log_dir=log_path,
         wandb_project=config.wandb_project,
         config=config,
         do_configure_logging_module=True,
@@ -92,6 +91,21 @@ def _setup_logging(config: Config):
 async def main(config: Config):
     if not Path(f"./subsets/{config.dataset_name}/dataset").exists():
         raise FileNotFoundError(f"Dataset {config.dataset_name} not found")
+
+    # Construct the configuration name
+    model_id = config.model_name.replace("/", "_")
+    config_name = (
+        f"{config.dataset_name}"
+        f"_s{config.train_split}"
+        f"_bs{config.batch_size}"
+        f"_lr{config.learning_rate}"
+        f"_e{config.epochs}"
+        f"_{model_id}"
+    )
+
+    timestamp = time.strftime("%Y%m%d_%H%M%S")
+    log_path = Path(f"./logs/openthoughts/{config_name}/{timestamp}")
+    log_path.mkdir(parents=True, exist_ok=True)
 
     dataset = load_from_disk(f"./subsets/{config.dataset_name}/dataset")
     split = dataset.train_test_split(train_size=config.train_split)
@@ -106,7 +120,7 @@ async def main(config: Config):
     total_steps = batches_per_epoch * config.epochs
     progress_denominator = max(total_steps, 1)
 
-    ml_logger = _setup_logging(config)
+    ml_logger = _setup_logging(config, log_path)
 
     service_client = tinker.ServiceClient()
     training_client = service_client.create_lora_training_client(
@@ -124,6 +138,11 @@ async def main(config: Config):
     ]
     infrequent_evaluators = [
         # evaluator() for evaluator in config.infrequent_evaluator_builders
+        aime2025_evaluator(
+            renderer_name,
+            config.model_name,
+            log_dir=str(log_path / "inspect"),
+        )
     ]
 
     @scope
@@ -212,7 +231,7 @@ async def main(config: Config):
                 await checkpoint_utils.save_checkpoint_async(
                     training_client=training_client,
                     name=f"{submitted.step:06d}",
-                    log_path=config.log_path,
+                    log_path=log_path,
                     loop_state={
                         "epoch": submitted.epoch_idx,
                         "batch": submitted.batch_idx,
@@ -268,7 +287,7 @@ async def main(config: Config):
         await checkpoint_utils.save_checkpoint_async(
             training_client=training_client,
             name="final",
-            log_path=config.log_path,
+            log_path=log_path,
             kind="both",
             loop_state={"epoch": config.epochs, "batch": batches_per_epoch},
         )

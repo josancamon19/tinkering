@@ -9,6 +9,7 @@ dependencies = [
     "datasets>=4.4.1",
     "dotenv>=0.9.9",
     "duckdb>=1.4.3",
+    "inspect-evals>=0.3.103",
     "rich>=14.2.0",
     "streamlit>=1.52.2",
     "tinker>=0.7.0",
