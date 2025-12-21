@@ -111,42 +111,44 @@ def save_all_stats(stats: dict):
 def get_stats_for_filters(all_stats: dict, source: str, domain: str) -> dict | None:
     """
     Look up pre-computed stats for given source/domain combination.
-    
+
     Returns the most specific stats available for the filter combination.
     """
     if all_stats is None:
         return None
-    
+
     # Generate lookup key
     key = f"{source}|{domain}"
-    
+
     if key in all_stats.get("combinations", {}):
         return all_stats["combinations"][key]
-    
+
     return None
 
 
 def compute_all_combinations(force: bool = False) -> dict:
     """Compute stats for all source/domain combinations."""
-    
+
     # Load filter options
     options = load_filter_options()
     if options is None:
         print("❌ Filter options not found! Run filters.py first.")
         return {}
-    
+
     sources = ["all"] + options["sources"]
     domains = ["all"] + options["domains"]
     diff_min = options["difficulty_min"]
     diff_max = options["difficulty_max"]
-    
+
     # Check existing cache
     existing = load_all_stats()
     if existing and not force:
-        print(f"✓ Stats already cached with {len(existing.get('combinations', {}))} combinations.")
+        print(
+            f"✓ Stats already cached with {len(existing.get('combinations', {}))} combinations."
+        )
         print("  Use --force to recompute.")
         return existing
-    
+
     print("=" * 60)
     print("Computing stats for ALL filter combinations")
     print("=" * 60)
@@ -154,18 +156,18 @@ def compute_all_combinations(force: bool = False) -> dict:
     print(f"Domains: {len(domains)} (including 'all')")
     print(f"Difficulty range: {diff_min} - {diff_max}")
     print()
-    
+
     # Generate all combinations
     combinations = list(product(sources, domains))
     total = len(combinations)
     print(f"Total combinations to compute: {total}")
     print()
-    
+
     # Connect once and reuse
     print("Connecting to DuckDB...")
     con = get_duckdb_connection()
     parquet_url = get_parquet_url()
-    
+
     all_stats = {
         "metadata": {
             "sources": sources,
@@ -176,18 +178,19 @@ def compute_all_combinations(force: bool = False) -> dict:
         },
         "combinations": {},
     }
-    
+
     for i, (source, domain) in enumerate(combinations, 1):
         key = f"{source}|{domain}"
         print(f"[{i}/{total}] Computing: source={source}, domain={domain}")
-        
+
+        # NOTE: Don't apply difficulty filters here - we want baseline stats
+        # for each source/domain combo across ALL difficulties.
+        # Difficulty filtering is for the UI, not for pre-computing stats.
         filters = {
-            "difficulty_min": diff_min,
-            "difficulty_max": diff_max,
             "source": source,
             "domain": domain,
         }
-        
+
         try:
             stats = compute_stats_for_filters(con, parquet_url, filters)
             all_stats["combinations"][key] = stats
@@ -195,19 +198,19 @@ def compute_all_combinations(force: bool = False) -> dict:
         except Exception as e:
             print(f"         ❌ Error: {e}")
             all_stats["combinations"][key] = None
-    
+
     con.close()
-    
+
     # Save to cache
     print()
     save_all_stats(all_stats)
-    
+
     # Print summary
     print()
     print("=" * 60)
     print("Summary")
     print("=" * 60)
-    
+
     base = all_stats["combinations"].get("all|all")
     if base:
         print(f"Total dataset: {base['total_rows']:,} rows")
@@ -223,7 +226,7 @@ def compute_all_combinations(force: bool = False) -> dict:
             stats = all_stats["combinations"].get(f"{source}|all")
             if stats:
                 print(f"  {source}: {stats['total_rows']:,} rows")
-    
+
     return all_stats
 
 

@@ -4,10 +4,10 @@ Streamlit dashboard to explore OpenThoughts3-1.2M dataset.
 Prerequisites:
     # 1. Compute filter options (sources, domains, difficulty range)
     python -m tinkering.exploring_openthoughts.filters
-    
+
     # 2. Pre-compute stats for all filter combinations
     python -m tinkering.exploring_openthoughts.stats
-    
+
     # 3. Run the dashboard
     streamlit run src/tinkering/exploring_openthoughts/main.py
 """
@@ -195,19 +195,26 @@ def main():
         f"✅ {len(filter_options['sources'])} sources, {len(filter_options['domains'])} domains"
     )
 
-    difficulty_range = st.sidebar.slider(
-        "Difficulty Range",
-        min_value=filter_options["difficulty_min"],
-        max_value=filter_options["difficulty_max"],
-        value=(filter_options["difficulty_min"], filter_options["difficulty_max"]),
-    )
+    # Difficulty filter (optional, most values are None)
+    enable_difficulty = st.sidebar.checkbox("Filter by difficulty", value=False)
+    if enable_difficulty:
+        difficulty = st.sidebar.selectbox(
+            "Difficulty",
+            options=[6, 7, 8, 9, 10],
+            index=0,
+        )
+        difficulty_min = difficulty
+        difficulty_max = difficulty
+    else:
+        difficulty_min = None
+        difficulty_max = None
 
     source = st.sidebar.selectbox("Source", ["all"] + filter_options["sources"])
     domain = st.sidebar.selectbox("Domain", ["all"] + filter_options["domains"])
 
     filters = {
-        "difficulty_min": difficulty_range[0],
-        "difficulty_max": difficulty_range[1],
+        "difficulty_min": difficulty_min,
+        "difficulty_max": difficulty_max,
         "source": source,
         "domain": domain,
     }
@@ -342,7 +349,7 @@ def main():
     with tab_stats:
         # Load pre-computed stats
         all_stats = load_all_stats()
-        
+
         if all_stats is None:
             st.error("❌ Pre-computed stats not found!")
             st.markdown("""
@@ -355,14 +362,18 @@ def main():
         else:
             # Get stats for current filter combination
             stats = get_stats_for_filters(all_stats, source, domain)
-            
+
             if stats is None:
                 st.warning(f"No cached stats for source='{source}', domain='{domain}'")
-                st.info("Run `python -m tinkering.exploring_openthoughts.stats --force` to recompute.")
+                st.info(
+                    "Run `python -m tinkering.exploring_openthoughts.stats --force` to recompute."
+                )
             else:
                 st.success(f"📊 Stats for: source=**{source}**, domain=**{domain}**")
-                st.caption("_Note: Difficulty slider affects data table only, not pre-computed stats._")
-                
+                st.caption(
+                    "_Note: Difficulty filter affects data table only, not pre-computed stats._"
+                )
+
                 col1, col2, col3, col4 = st.columns(4)
                 col1.metric("Total Rows", f"{stats['total_rows']:,}")
                 col2.metric("Avg Difficulty", f"{stats['avg_difficulty']:.2f}")
@@ -387,7 +398,8 @@ def main():
 
                 st.markdown("**Domain Distribution**")
                 domain_df = pd.DataFrame(
-                    list(stats["domain_distribution"].items()), columns=["Domain", "Count"]
+                    list(stats["domain_distribution"].items()),
+                    columns=["Domain", "Count"],
                 )
                 st.bar_chart(domain_df.set_index("Domain"))
 
