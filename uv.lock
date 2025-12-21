@@ -3723,6 +3723,7 @@ version = "0.1.0"
 source = { editable = "." }
 dependencies = [
     { name = "chz" },
+    { name = "datasets" },
     { name = "dotenv" },
     { name = "duckdb" },
     { name = "rich" },
@@ -3747,6 +3748,7 @@ dev = [
 requires-dist = [
     { name = "black", marker = "extra == 'dev'" },
     { name = "chz", specifier = ">=0.4.0" },
+    { name = "datasets", specifier = ">=4.4.1" },
     { name = "dotenv", specifier = ">=0.9.9" },
     { name = "duckdb", specifier = ">=1.4.3" },
     { name = "flake8", marker = "extra == 'dev'" },
