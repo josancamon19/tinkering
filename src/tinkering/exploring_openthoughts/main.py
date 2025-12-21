@@ -13,6 +13,7 @@ Prerequisites:
 """
 
 import json
+import os
 import re
 
 import streamlit as st
@@ -23,7 +24,6 @@ from tinkering.exploring_openthoughts.common import (
     get_parquet_url,
     load_filter_options,
     build_where_clause,
-    HF_TOKEN,
 )
 from tinkering.exploring_openthoughts.stats import (
     load_all_stats,
@@ -186,10 +186,19 @@ def main():
     st.title("🧠 OpenThoughts3-1.2M Explorer")
 
     # Sidebar
-    st.sidebar.header("🔍 Filters")
+    st.sidebar.header("🔑 HF Token (optional)")
+    hf_token = st.sidebar.text_input(
+        "Hugging Face Token",
+        type="password",
+        help="Optional. Data reads are faster and more reliable with a token.",
+    )
+    if hf_token:
+        os.environ["HF_TOKEN"] = hf_token
+    else:
+        st.sidebar.info("💡 Reads work better with a HF token set.")
 
-    if not HF_TOKEN:
-        st.sidebar.warning("⚠️ No HF_TOKEN set. May hit rate limits.")
+    st.sidebar.divider()
+    st.sidebar.header("🔍 Filters")
 
     st.sidebar.success(
         f"✅ {len(filter_options['sources'])} sources, {len(filter_options['domains'])} domains"
@@ -200,11 +209,16 @@ def main():
     if enable_difficulty:
         difficulty = st.sidebar.selectbox(
             "Difficulty",
-            options=[6, 7, 8, 9, 10],
+            options=["None", 6, 7, 8, 9, 10],
             index=0,
+            format_func=lambda x: "None (no difficulty)" if x == "None" else str(x),
         )
-        difficulty_min = difficulty
-        difficulty_max = difficulty
+        if difficulty == "None":
+            difficulty_min = "null"
+            difficulty_max = "null"
+        else:
+            difficulty_min = difficulty
+            difficulty_max = difficulty
     else:
         difficulty_min = None
         difficulty_max = None

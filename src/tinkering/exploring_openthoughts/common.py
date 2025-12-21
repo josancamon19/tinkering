@@ -92,10 +92,12 @@ def save_stats_to_cache(cache_key: str, stats: dict):
 def build_where_clause(filters: dict[str, Any]) -> str:
     """Build SQL WHERE clause from filters."""
     conditions = []
-    if filters.get("difficulty_min") is not None:
+    if filters.get("difficulty_min") == "null":
+        conditions.append("difficulty IS NULL")
+    elif filters.get("difficulty_min") is not None:
         conditions.append(f"difficulty >= {filters['difficulty_min']}")
-    if filters.get("difficulty_max") is not None:
-        conditions.append(f"difficulty <= {filters['difficulty_max']}")
+        if filters.get("difficulty_max") is not None:
+            conditions.append(f"difficulty <= {filters['difficulty_max']}")
     if filters.get("source") and filters["source"] != "all":
         conditions.append(f"source = '{filters['source']}'")
     if filters.get("domain") and filters["domain"] != "all":
@@ -131,5 +133,7 @@ def execute_with_retry(
                 print(f"  ❌ Query failed after {attempts} attempts: {e}")
                 raise
             print(f"  ⚠️  Query failed: {e}")
-            print(f"  Retrying in {RETRY_DELAY_SECONDS} seconds... (attempt {attempts})")
+            print(
+                f"  Retrying in {RETRY_DELAY_SECONDS} seconds... (attempt {attempts})"
+            )
             time.sleep(RETRY_DELAY_SECONDS)

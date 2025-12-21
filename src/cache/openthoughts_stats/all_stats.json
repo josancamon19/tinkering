@@ -1,0 +1,400 @@
+{
+  "metadata": {
+    "sources": [
+      "all",
+      "ai2-adapt-dev/openmath-2-math",
+      "nvidia/OpenCodeReasoning",
+      "organic-chemistry-questions",
+      "stackexchange-physics",
+      "stackexchange_codegolf"
+    ],
+    "domains": [
+      "all",
+      "code",
+      "math",
+      "science"
+    ],
+    "difficulty_min": 6,
+    "difficulty_max": 10,
+    "total_combinations": 24
+  },
+  "combinations": {
+    "all|all": {
+      "total_rows": 1200000,
+      "unique_sources": 5,
+      "unique_domains": 3,
+      "avg_difficulty": 7.966208,
+      "min_difficulty": 6,
+      "max_difficulty": 10,
+      "difficulty_distribution": {
+        "6": 3520,
+        "7": 44016,
+        "8": 163184,
+        "9": 35952,
+        "10": 3328,
+        "None": 950000
+      },
+      "source_distribution": {
+        "ai2-adapt-dev/openmath-2-math": 850000,
+        "nvidia/OpenCodeReasoning": 125840,
+        "stackexchange_codegolf": 124160,
+        "organic-chemistry-questions": 59904,
+        "stackexchange-physics": 40096
+      },
+      "domain_distribution": {
+        "math": 850000,
+        "code": 250000,
+        "science": 100000
+      }
+    },
+    "all|code": {
+      "total_rows": 250000,
+      "unique_sources": 2,
+      "unique_domains": 1,
+      "avg_difficulty": 7.966208,
+      "min_difficulty": 6,
+      "max_difficulty": 10,
+      "difficulty_distribution": {
+        "6": 3520,
+        "7": 44016,
+        "8": 163184,
+        "9": 35952,
+        "10": 3328
+      },
+      "source_distribution": {
+        "nvidia/OpenCodeReasoning": 125840,
+        "stackexchange_codegolf": 124160
+      },
+      "domain_distribution": {
+        "code": 250000
+      }
+    },
+    "all|math": {
+      "total_rows": 850000,
+      "unique_sources": 1,
+      "unique_domains": 1,
+      "avg_difficulty": null,
+      "min_difficulty": null,
+      "max_difficulty": null,
+      "difficulty_distribution": {
+        "None": 850000
+      },
+      "source_distribution": {
+        "ai2-adapt-dev/openmath-2-math": 850000
+      },
+      "domain_distribution": {
+        "math": 850000
+      }
+    },
+    "all|science": {
+      "total_rows": 100000,
+      "unique_sources": 2,
+      "unique_domains": 1,
+      "avg_difficulty": null,
+      "min_difficulty": null,
+      "max_difficulty": null,
+      "difficulty_distribution": {
+        "None": 100000
+      },
+      "source_distribution": {
+        "organic-chemistry-questions": 59904,
+        "stackexchange-physics": 40096
+      },
+      "domain_distribution": {
+        "science": 100000
+      }
+    },
+    "ai2-adapt-dev/openmath-2-math|all": {
+      "total_rows": 850000,
+      "unique_sources": 1,
+      "unique_domains": 1,
+      "avg_difficulty": null,
+      "min_difficulty": null,
+      "max_difficulty": null,
+      "difficulty_distribution": {
+        "None": 850000
+      },
+      "source_distribution": {
+        "ai2-adapt-dev/openmath-2-math": 850000
+      },
+      "domain_distribution": {
+        "math": 850000
+      }
+    },
+    "ai2-adapt-dev/openmath-2-math|code": {
+      "total_rows": 0,
+      "unique_sources": 0,
+      "unique_domains": 0,
+      "avg_difficulty": null,
+      "min_difficulty": null,
+      "max_difficulty": null,
+      "difficulty_distribution": {},
+      "source_distribution": {},
+      "domain_distribution": {}
+    },
+    "ai2-adapt-dev/openmath-2-math|math": {
+      "total_rows": 850000,
+      "unique_sources": 1,
+      "unique_domains": 1,
+      "avg_difficulty": null,
+      "min_difficulty": null,
+      "max_difficulty": null,
+      "difficulty_distribution": {
+        "None": 850000
+      },
+      "source_distribution": {
+        "ai2-adapt-dev/openmath-2-math": 850000
+      },
+      "domain_distribution": {
+        "math": 850000
+      }
+    },
+    "ai2-adapt-dev/openmath-2-math|science": {
+      "total_rows": 0,
+      "unique_sources": 0,
+      "unique_domains": 0,
+      "avg_difficulty": null,
+      "min_difficulty": null,
+      "max_difficulty": null,
+      "difficulty_distribution": {},
+      "source_distribution": {},
+      "domain_distribution": {}
+    },
+    "nvidia/OpenCodeReasoning|all": {
+      "total_rows": 125840,
+      "unique_sources": 1,
+      "unique_domains": 1,
+      "avg_difficulty": 8.106420851875397,
+      "min_difficulty": 8,
+      "max_difficulty": 10,
+      "difficulty_distribution": {
+        "8": 112640,
+        "9": 13008,
+        "10": 192
+      },
+      "source_distribution": {
+        "nvidia/OpenCodeReasoning": 125840
+      },
+      "domain_distribution": {
+        "code": 125840
+      }
+    },
+    "nvidia/OpenCodeReasoning|code": {
+      "total_rows": 125840,
+      "unique_sources": 1,
+      "unique_domains": 1,
+      "avg_difficulty": 8.106420851875397,
+      "min_difficulty": 8,
+      "max_difficulty": 10,
+      "difficulty_distribution": {
+        "8": 112640,
+        "9": 13008,
+        "10": 192
+      },
+      "source_distribution": {
+        "nvidia/OpenCodeReasoning": 125840
+      },
+      "domain_distribution": {
+        "code": 125840
+      }
+    },
+    "nvidia/OpenCodeReasoning|math": {
+      "total_rows": 0,
+      "unique_sources": 0,
+      "unique_domains": 0,
+      "avg_difficulty": null,
+      "min_difficulty": null,
+      "max_difficulty": null,
+      "difficulty_distribution": {},
+      "source_distribution": {},
+      "domain_distribution": {}
+    },
+    "nvidia/OpenCodeReasoning|science": {
+      "total_rows": 0,
+      "unique_sources": 0,
+      "unique_domains": 0,
+      "avg_difficulty": null,
+      "min_difficulty": null,
+      "max_difficulty": null,
+      "difficulty_distribution": {},
+      "source_distribution": {},
+      "domain_distribution": {}
+    },
+    "organic-chemistry-questions|all": {
+      "total_rows": 59904,
+      "unique_sources": 1,
+      "unique_domains": 1,
+      "avg_difficulty": null,
+      "min_difficulty": null,
+      "max_difficulty": null,
+      "difficulty_distribution": {
+        "None": 59904
+      },
+      "source_distribution": {
+        "organic-chemistry-questions": 59904
+      },
+      "domain_distribution": {
+        "science": 59904
+      }
+    },
+    "organic-chemistry-questions|code": {
+      "total_rows": 0,
+      "unique_sources": 0,
+      "unique_domains": 0,
+      "avg_difficulty": null,
+      "min_difficulty": null,
+      "max_difficulty": null,
+      "difficulty_distribution": {},
+      "source_distribution": {},
+      "domain_distribution": {}
+    },
+    "organic-chemistry-questions|math": {
+      "total_rows": 0,
+      "unique_sources": 0,
+      "unique_domains": 0,
+      "avg_difficulty": null,
+      "min_difficulty": null,
+      "max_difficulty": null,
+      "difficulty_distribution": {},
+      "source_distribution": {},
+      "domain_distribution": {}
+    },
+    "organic-chemistry-questions|science": {
+      "total_rows": 59904,
+      "unique_sources": 1,
+      "unique_domains": 1,
+      "avg_difficulty": null,
+      "min_difficulty": null,
+      "max_difficulty": null,
+      "difficulty_distribution": {
+        "None": 59904
+      },
+      "source_distribution": {
+        "organic-chemistry-questions": 59904
+      },
+      "domain_distribution": {
+        "science": 59904
+      }
+    },
+    "stackexchange-physics|all": {
+      "total_rows": 40096,
+      "unique_sources": 1,
+      "unique_domains": 1,
+      "avg_difficulty": null,
+      "min_difficulty": null,
+      "max_difficulty": null,
+      "difficulty_distribution": {
+        "None": 40096
+      },
+      "source_distribution": {
+        "stackexchange-physics": 40096
+      },
+      "domain_distribution": {
+        "science": 40096
+      }
+    },
+    "stackexchange-physics|code": {
+      "total_rows": 0,
+      "unique_sources": 0,
+      "unique_domains": 0,
+      "avg_difficulty": null,
+      "min_difficulty": null,
+      "max_difficulty": null,
+      "difficulty_distribution": {},
+      "source_distribution": {},
+      "domain_distribution": {}
+    },
+    "stackexchange-physics|math": {
+      "total_rows": 0,
+      "unique_sources": 0,
+      "unique_domains": 0,
+      "avg_difficulty": null,
+      "min_difficulty": null,
+      "max_difficulty": null,
+      "difficulty_distribution": {},
+      "source_distribution": {},
+      "domain_distribution": {}
+    },
+    "stackexchange-physics|science": {
+      "total_rows": 40096,
+      "unique_sources": 1,
+      "unique_domains": 1,
+      "avg_difficulty": null,
+      "min_difficulty": null,
+      "max_difficulty": null,
+      "difficulty_distribution": {
+        "None": 40096
+      },
+      "source_distribution": {
+        "stackexchange-physics": 40096
+      },
+      "domain_distribution": {
+        "science": 40096
+      }
+    },
+    "stackexchange_codegolf|all": {
+      "total_rows": 124160,
+      "unique_sources": 1,
+      "unique_domains": 1,
+      "avg_difficulty": 7.82409793814433,
+      "min_difficulty": 6,
+      "max_difficulty": 10,
+      "difficulty_distribution": {
+        "6": 3520,
+        "7": 44016,
+        "8": 50544,
+        "9": 22944,
+        "10": 3136
+      },
+      "source_distribution": {
+        "stackexchange_codegolf": 124160
+      },
+      "domain_distribution": {
+        "code": 124160
+      }
+    },
+    "stackexchange_codegolf|code": {
+      "total_rows": 124160,
+      "unique_sources": 1,
+      "unique_domains": 1,
+      "avg_difficulty": 7.82409793814433,
+      "min_difficulty": 6,
+      "max_difficulty": 10,
+      "difficulty_distribution": {
+        "6": 3520,
+        "7": 44016,
+        "8": 50544,
+        "9": 22944,
+        "10": 3136
+      },
+      "source_distribution": {
+        "stackexchange_codegolf": 124160
+      },
+      "domain_distribution": {
+        "code": 124160
+      }
+    },
+    "stackexchange_codegolf|math": {
+      "total_rows": 0,
+      "unique_sources": 0,
+      "unique_domains": 0,
+      "avg_difficulty": null,
+      "min_difficulty": null,
+      "max_difficulty": null,
+      "difficulty_distribution": {},
+      "source_distribution": {},
+      "domain_distribution": {}
+    },
+    "stackexchange_codegolf|science": {
+      "total_rows": 0,
+      "unique_sources": 0,
+      "unique_domains": 0,
+      "avg_difficulty": null,
+      "min_difficulty": null,
+      "max_difficulty": null,
+      "difficulty_distribution": {},
+      "source_distribution": {},
+      "domain_distribution": {}
+    }
+  }
+}
