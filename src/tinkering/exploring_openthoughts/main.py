@@ -96,7 +96,7 @@ def extract_thinking_and_response(content: str) -> tuple[str | None, str]:
     return None, content
 
 
-def get_conversation_preview(conversations, max_len: int = 100) -> str:
+def get_conversation_preview(conversations, max_len: int = 500) -> str:
     """Get a short preview of the conversation."""
     if conversations is None or (
         hasattr(conversations, "__len__") and len(conversations) == 0
@@ -141,9 +141,8 @@ def render_conversation_detail(conversation):
         content = turn.get("value", turn.get("content", ""))
 
         if role in ("human", "user"):
-            st.markdown("### 🧑 User Question")
-            st.markdown(content)
-            st.divider()
+            with st.expander("🧑 User Question", expanded=False):
+                st.markdown(content)
 
         elif role in ("gpt", "assistant"):
             st.markdown("### 🤖 Assistant Response")
@@ -328,36 +327,43 @@ def main():
                     "domain": ex.get("domain", "N/A"),
                     "tokens": estimate_conversation_tokens(ex.get("conversations", [])),
                     "preview": get_conversation_preview(
-                        ex.get("conversations", []), max_len=80
+                        ex.get("conversations", []), max_len=500
                     ),
                 }
                 for i, ex in enumerate(examples)
             ]
 
             df = pd.DataFrame(table_data)
-            st.dataframe(
+            
+            # Dataframe with row selection
+            event = st.dataframe(
                 df[["difficulty", "source", "domain", "tokens", "preview"]],
                 use_container_width=True,
                 hide_index=False,
+                on_select="rerun",
+                selection_mode="single-row",
             )
 
-            st.divider()
-            st.markdown("### 🔍 View Conversation")
+            # Get selected row from the event
+            selected_rows = event.selection.rows
+            
+            if selected_rows:
+                selected_idx = selected_rows[0]
+                example = examples[selected_idx]
 
-            options = [
-                f"{i}: {row['preview'][:50]}..." for i, row in enumerate(table_data)
-            ]
-            selected = st.selectbox("Select row", options, index=0)
-            selected_idx = int(selected.split(":")[0])
-            example = examples[selected_idx]
+                st.divider()
+                st.markdown(f"### 🔍 Conversation #{selected_idx}")
 
-            col1, col2, col3 = st.columns(3)
-            col1.metric("Difficulty", example.get("difficulty"))
-            col2.metric("Source", example.get("source", "N/A"))
-            col3.metric("Domain", example.get("domain", "N/A"))
+                col1, col2, col3, col4 = st.columns(4)
+                col1.metric("Difficulty", example.get("difficulty"))
+                col2.metric("Source", example.get("source", "N/A"))
+                col3.metric("Domain", example.get("domain", "N/A"))
+                col4.metric("Tokens", estimate_conversation_tokens(example.get("conversations", [])))
 
-            st.divider()
-            render_conversation_detail(example.get("conversations", []))
+                st.divider()
+                render_conversation_detail(example.get("conversations", []))
+            else:
+                st.info("👆 Click on a row in the table to view the conversation.")
         else:
             st.info("No results found for the current filters.")
 
@@ -392,7 +398,8 @@ def main():
 
                 col1, col2, col3, col4 = st.columns(4)
                 col1.metric("Total Rows", f"{stats['total_rows']:,}")
-                col2.metric("Avg Difficulty", f"{stats['avg_difficulty']:.2f}")
+                avg_diff = stats['avg_difficulty']
+                col2.metric("Avg Difficulty", f"{avg_diff:.2f}" if avg_diff is not None else "N/A")
                 col3.metric("Unique Sources", stats["unique_sources"])
                 col4.metric("Unique Domains", stats["unique_domains"])
 
