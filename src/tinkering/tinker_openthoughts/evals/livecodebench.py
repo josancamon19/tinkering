@@ -44,13 +44,14 @@ class LiveCodeBenchEvaluator(SamplingClientEvaluator):
         max_samples: Optional[int] = None,
         log_dir: Optional[str] = None,
         seed: int = 42,
+        timeout: int = 60,
     ):
         self.model_name = model_name
         tokenizer = get_tokenizer(model_name)
         self.renderer = renderers.get_renderer(name=renderer_name, tokenizer=tokenizer)
         self.log_dir = log_dir
         self.seed = seed
-
+        self.timeout = timeout
         # Load dataset directly as JSON to avoid deprecated loading script
         # The livecodebench/code_generation_lite dataset uses a loading script
         # which is no longer supported by HuggingFace datasets

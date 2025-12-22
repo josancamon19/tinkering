@@ -40,12 +40,18 @@ async def run_evals(
     evaluators: list[Evaluator],
     training_client: tinker.TrainingClient,
     step: int,
+    prefix: str = "",
 ) -> dict[str, float]:
     """
     Run evaluators in parallel and pass step to each one.
 
     This is a custom version that passes `step` to evaluators so they can
     include it in their logs for tracing training evolution.
+
+    Args:
+        evaluators: List of evaluators to run
+        training_client: The training client
+        step: Current training step
     """
     update_scope_context({"step": step})
 
@@ -89,10 +95,20 @@ async def run_evals(
     # Run all evaluators in parallel
     all_results = await asyncio.gather(*[run_evaluator(e) for e in evaluators])
 
-    # Merge all metrics
+    # Merge all metrics with prefix
     metrics = {}
+    accuracy_values = []
     for eval_metrics in all_results:
-        metrics.update(eval_metrics)
+        for key, value in eval_metrics.items():
+            prefixed_key = f"{prefix}{key}" if prefix else key
+            metrics[prefixed_key] = value
+            # Collect accuracy metrics for averaging
+            if "accuracy" in key.lower() and isinstance(value, (int, float)):
+                accuracy_values.append(value)
+
+    # Add average accuracy if we have multiple accuracy metrics
+    if prefix and accuracy_values:
+        metrics[f"{prefix}avg_accuracy"] = sum(accuracy_values) / len(accuracy_values)
 
     return metrics
 
@@ -103,9 +119,6 @@ class Config:
     model_name: str = "Qwen/Qwen3-4B-Instruct-2507"
     # model_name: str = "Qwen/Qwen3-8B-Base"
 
-    infrequent_evaluator_builders: list[EvaluatorBuilder] = chz.field(
-        default_factory=list
-    )
     save_every: int = 20
     eval_every: int = 10
     infrequent_eval_every: int = 50
@@ -117,7 +130,7 @@ class Config:
     # hp's
     batch_size: int = 32
     learning_rate: float = 1e-5
-    epochs: int = 13
+    epochs: int = 5
     # TODO: setup some hp tunning with some hp finding tool
 
 
@@ -208,14 +221,14 @@ async def main(config: Config):
     ]
     infrequent_evaluators = [
         # evaluator() for evaluator in config.infrequent_evaluator_builders
-        # aime2025_evaluator(
-        #     renderer_name,
-        #     config.model_name,
-        #     log_dir=str(log_path / "inspect"),
-        # ),
-        # gpqa_evaluator(
-        #     renderer_name, config.model_name, log_dir=str(log_path / "gpqa")
-        # ),
+        aime2025_evaluator(
+            renderer_name,
+            config.model_name,
+            log_dir=str(log_path / "inspect"),
+        ),
+        gpqa_evaluator(
+            renderer_name, config.model_name, log_dir=str(log_path / "gpqa")
+        ),
         livecodebench_evaluator(
             renderer_name,
             config.model_name,
@@ -261,7 +274,9 @@ async def main(config: Config):
         eval_metrics = None
         if evaluators and config.eval_every > 0 and step % config.eval_every == 0:
             with timed("evals", metrics):
-                eval_metrics = await run_evals(evaluators, training_client, step)
+                eval_metrics = await run_evals(
+                    evaluators, training_client, step, prefix="eval/"
+                )
 
         infrequent_eval_metrics = None
         if (
@@ -271,7 +286,7 @@ async def main(config: Config):
         ):
             with timed("infrequent_evals", metrics):
                 infrequent_eval_metrics = await run_evals(
-                    infrequent_evaluators, training_client, step
+                    infrequent_evaluators, training_client, step, prefix="eval/"
                 )
 
         fwd_bwd_future = await training_client.forward_backward_async(
