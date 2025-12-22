@@ -133,33 +133,8 @@ class LiveCodeBenchEvaluator(SamplingClientEvaluator):
             prompts.append(model_input)
             prompt_texts.append(prompt_text)
 
-        async def wrapped_sample(idx, prompt):
-            res = await sampling_client.sample_async(
-                prompt=prompt, num_samples=1, sampling_params=sampling_params
-            )
-            return idx, res
-
-        tasks = [wrapped_sample(i, p) for i, p in enumerate(prompts)]
-        results = [None] * len(tasks)
-
-        with Progress(
-            TextColumn("[progress.description]{task.description}"),
-            BarColumn(),
-            TaskProgressColumn(),
-            TimeRemainingColumn(),
-            console=Console(force_terminal=True),
-        ) as progress:
-            eval_task = progress.add_task(
-                "[cyan]Sampling LiveCodeBench...", total=len(tasks)
-            )
-            for coro in asyncio.as_completed(tasks):
-                idx, r = await coro
-                results[idx] = r
-                progress.advance(eval_task)
-
-        # Evaluation phase
-        def evaluate_one(idx):
-            r = results[idx]
+        # Evaluation function - runs in thread pool as soon as sampling completes
+        def evaluate_one(idx, r):
             example = self.dataset[idx]
             if r is None:
                 return idx, False, "No response", ""
@@ -174,27 +149,36 @@ class LiveCodeBenchEvaluator(SamplingClientEvaluator):
 
             # Run execution validation
             try:
-                # lcb_run is blocking, but we are in a thread pool
                 result_list = lcb_run(
                     problem=example,
                     completion=post_process_code(code),
                     timeout=6,
                     is_extracted=not example["is_stdin"],
                 )
-                is_correct = all(r[0] for r in result_list)
+                is_correct = all(res[0] for res in result_list)
                 return idx, is_correct, "", content
             except Exception as e:
                 return idx, False, str(e), content
+
+        async def wrapped_sample(idx, prompt):
+            res = await sampling_client.sample_async(
+                prompt=prompt, num_samples=1, sampling_params=sampling_params
+            )
+            return idx, res
 
         num_correct = 0
         logged_results = []
 
         with ThreadPoolExecutor(max_workers=32) as executor:
             loop = asyncio.get_running_loop()
-            eval_futures = [
-                loop.run_in_executor(executor, evaluate_one, i)
-                for i in range(len(results))
-            ]
+
+            # Create all sampling tasks
+            sample_tasks = {
+                asyncio.create_task(wrapped_sample(i, p)): i
+                for i, p in enumerate(prompts)
+            }
+            pending_samples = set(sample_tasks.keys())
+            pending_execs = set()
 
             with Progress(
                 TextColumn("[progress.description]{task.description}"),
@@ -203,25 +187,48 @@ class LiveCodeBenchEvaluator(SamplingClientEvaluator):
                 TimeRemainingColumn(),
                 console=Console(force_terminal=True),
             ) as progress:
-                exec_task = progress.add_task(
-                    "[cyan]Executing LiveCodeBench...", total=len(eval_futures)
+                sample_task = progress.add_task(
+                    "[cyan]Sampling LiveCodeBench...", total=len(prompts)
                 )
-                for fut in asyncio.as_completed(eval_futures):
-                    idx, is_correct, error, content = await fut
-                    if is_correct:
-                        num_correct += 1
+                exec_task = progress.add_task(
+                    "[cyan]Executing LiveCodeBench...", total=len(prompts)
+                )
 
-                    logged_results.append(
-                        {
-                            "index": idx,
-                            "prompt": prompt_texts[idx],
-                            "response": content,
-                            "is_correct": is_correct,
-                            "error": error,
-                            "difficulty": self.dataset[idx]["difficulty"],
-                        }
+                # Process sampling and execution in parallel
+                while pending_samples or pending_execs:
+                    all_pending = pending_samples | pending_execs
+                    done, _ = await asyncio.wait(
+                        all_pending, return_when=asyncio.FIRST_COMPLETED
                     )
-                    progress.advance(exec_task)
+
+                    for fut in done:
+                        if fut in pending_samples:
+                            # Sampling completed - immediately submit for execution
+                            pending_samples.remove(fut)
+                            idx, r = fut.result()
+                            progress.advance(sample_task)
+                            exec_fut = loop.run_in_executor(
+                                executor, evaluate_one, idx, r
+                            )
+                            pending_execs.add(exec_fut)
+                        else:
+                            # Execution completed
+                            pending_execs.remove(fut)
+                            idx, is_correct, error, content = fut.result()
+                            if is_correct:
+                                num_correct += 1
+
+                            logged_results.append(
+                                {
+                                    "index": idx,
+                                    "prompt": prompt_texts[idx],
+                                    "response": content,
+                                    "is_correct": is_correct,
+                                    "error": error,
+                                    "difficulty": self.dataset[idx]["difficulty"],
+                                }
+                            )
+                            progress.advance(exec_task)
 
         if self.log_dir:
             log_path = Path(self.log_dir)

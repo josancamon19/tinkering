@@ -204,18 +204,18 @@ async def main(config: Config):
 
     # TODO: couldn't figure the structure to pass as parameter
     evaluators = [
-        NLLEvaluator.from_split(test_dataset, renderer, max_tokens, name="test")
+        # NLLEvaluator.from_split(test_dataset, renderer, max_tokens, name="test")
     ]
     infrequent_evaluators = [
         # evaluator() for evaluator in config.infrequent_evaluator_builders
-        aime2025_evaluator(
-            renderer_name,
-            config.model_name,
-            log_dir=str(log_path / "inspect"),
-        ),
-        gpqa_evaluator(
-            renderer_name, config.model_name, log_dir=str(log_path / "gpqa")
-        ),
+        # aime2025_evaluator(
+        #     renderer_name,
+        #     config.model_name,
+        #     log_dir=str(log_path / "inspect"),
+        # ),
+        # gpqa_evaluator(
+        #     renderer_name, config.model_name, log_dir=str(log_path / "gpqa")
+        # ),
         livecodebench_evaluator(
             renderer_name,
             config.model_name,
