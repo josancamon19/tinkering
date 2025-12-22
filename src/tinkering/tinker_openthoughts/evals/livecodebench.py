@@ -21,6 +21,7 @@ from datasets import load_dataset
 from tinker import types
 from tinker_cookbook import renderers
 from tinker_cookbook.tokenizer_utils import get_tokenizer
+from rich.console import Console
 from rich.progress import (
     Progress,
     TextColumn,
@@ -146,6 +147,7 @@ class LiveCodeBenchEvaluator(SamplingClientEvaluator):
             BarColumn(),
             TaskProgressColumn(),
             TimeRemainingColumn(),
+            console=Console(force_terminal=True),
         ) as progress:
             eval_task = progress.add_task(
                 "[cyan]Sampling LiveCodeBench...", total=len(tasks)
@@ -199,6 +201,7 @@ class LiveCodeBenchEvaluator(SamplingClientEvaluator):
                 BarColumn(),
                 TaskProgressColumn(),
                 TimeRemainingColumn(),
+                console=Console(force_terminal=True),
             ) as progress:
                 exec_task = progress.add_task(
                     "[cyan]Executing LiveCodeBench...", total=len(eval_futures)

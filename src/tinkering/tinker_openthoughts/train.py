@@ -42,15 +42,26 @@ async def run_evals(
     step: int,
 ) -> dict[str, float]:
     """
-    Run evaluators and pass step to each one.
+    Run evaluators in parallel and pass step to each one.
 
     This is a custom version that passes `step` to evaluators so they can
     include it in their logs for tracing training evolution.
     """
     update_scope_context({"step": step})
 
-    metrics = {}
+    # Check if any evaluators need a sampling client
+    sampling_evaluators = [
+        e for e in evaluators if isinstance(e, SamplingClientEvaluator)
+    ]
+
+    # Create sampling client upfront if any sampling evaluators exist
     sampling_client = None
+    if sampling_evaluators:
+        sampling_client = (
+            await training_client.save_weights_and_get_sampling_client_async(
+                f"evals_step_{step}"
+            )
+        )
 
     @scope
     async def run_evaluator(evaluator: Evaluator) -> dict[str, float]:
@@ -68,14 +79,6 @@ async def run_evals(
                 return await evaluator(training_client)
         elif isinstance(evaluator, SamplingClientEvaluator):
             update_scope_context({"evaluator_type": "SamplingClientEvaluator"})
-            # Create sampling client lazily, only when needed
-            nonlocal sampling_client
-            if sampling_client is None:
-                sampling_client = (
-                    await training_client.save_weights_and_get_sampling_client_async(
-                        f"evals_step_{step}"
-                    )
-                )
             try:
                 return await evaluator(sampling_client, step=step)
             except TypeError:
@@ -83,8 +86,12 @@ async def run_evals(
         else:
             raise ValueError(f"Unknown evaluator type: {type(evaluator)}")
 
-    for evaluator in evaluators:
-        eval_metrics = await run_evaluator(evaluator)
+    # Run all evaluators in parallel
+    all_results = await asyncio.gather(*[run_evaluator(e) for e in evaluators])
+
+    # Merge all metrics
+    metrics = {}
+    for eval_metrics in all_results:
         metrics.update(eval_metrics)
 
     return metrics

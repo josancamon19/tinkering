@@ -334,7 +334,7 @@ def main():
             ]
 
             df = pd.DataFrame(table_data)
-            
+
             # Dataframe with row selection
             event = st.dataframe(
                 df[["difficulty", "source", "domain", "tokens", "preview"]],
@@ -346,7 +346,7 @@ def main():
 
             # Get selected row from the event
             selected_rows = event.selection.rows
-            
+
             if selected_rows:
                 selected_idx = selected_rows[0]
                 example = examples[selected_idx]
@@ -358,7 +358,10 @@ def main():
                 col1.metric("Difficulty", example.get("difficulty"))
                 col2.metric("Source", example.get("source", "N/A"))
                 col3.metric("Domain", example.get("domain", "N/A"))
-                col4.metric("Tokens", estimate_conversation_tokens(example.get("conversations", [])))
+                col4.metric(
+                    "Tokens",
+                    estimate_conversation_tokens(example.get("conversations", [])),
+                )
 
                 st.divider()
                 render_conversation_detail(example.get("conversations", []))
@@ -398,8 +401,11 @@ def main():
 
                 col1, col2, col3, col4 = st.columns(4)
                 col1.metric("Total Rows", f"{stats['total_rows']:,}")
-                avg_diff = stats['avg_difficulty']
-                col2.metric("Avg Difficulty", f"{avg_diff:.2f}" if avg_diff is not None else "N/A")
+                avg_diff = stats["avg_difficulty"]
+                col2.metric(
+                    "Avg Difficulty",
+                    f"{avg_diff:.2f}" if avg_diff is not None else "N/A",
+                )
                 col3.metric("Unique Sources", stats["unique_sources"])
                 col4.metric("Unique Domains", stats["unique_domains"])
 

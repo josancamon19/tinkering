@@ -5,6 +5,7 @@ from pathlib import Path
 import json
 from typing import Any, Optional
 from datasets import load_dataset
+from rich.console import Console
 from rich.progress import (
     Progress,
     TextColumn,
@@ -116,6 +117,7 @@ class GPQADiamondEvaluator(SamplingClientEvaluator):
             BarColumn(),
             TaskProgressColumn(),
             TimeRemainingColumn(),
+            console=Console(force_terminal=True),
         ) as progress:
             eval_task = progress.add_task(
                 "[cyan]Evaluating GPQA Diamond...", total=len(tasks)
