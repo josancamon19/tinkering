@@ -157,7 +157,7 @@ def fetch_filtered_data(
     console.print(f"  Found [green]{total_count:,}[/] rows matching filters")
 
     # Iterative fetching: keep fetching batches until we have enough
-    BATCH_SIZE = 1000
+    BATCH_SIZE = 10000
     MAX_BATCHES = 100  # Safety limit: max 100k rows scanned
     filtered = []
     offset = 0
