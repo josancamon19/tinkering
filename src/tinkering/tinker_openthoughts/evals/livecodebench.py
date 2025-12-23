@@ -45,6 +45,7 @@ class LiveCodeBenchEvaluator(SamplingClientEvaluator):
         log_dir: Optional[str] = None,
         seed: int = 42,
         timeout: int = 60,
+        pass_at_k: int = 1,
     ):
         self.model_name = model_name
         tokenizer = get_tokenizer(model_name)
@@ -52,6 +53,7 @@ class LiveCodeBenchEvaluator(SamplingClientEvaluator):
         self.log_dir = log_dir
         self.seed = seed
         self.timeout = timeout
+        self.pass_at_k = pass_at_k
         # Load dataset directly as JSON to avoid deprecated loading script
         # The livecodebench/code_generation_lite dataset uses a loading script
         # which is no longer supported by HuggingFace datasets
@@ -136,18 +138,16 @@ class LiveCodeBenchEvaluator(SamplingClientEvaluator):
             prompt_texts.append(prompt_text)
 
         # Evaluation function - runs in thread pool as soon as sampling completes
-        def evaluate_one(idx, r):
-            example = self.dataset[idx]
-            if r is None:
-                return idx, False, "No response", ""
-
-            response_tokens = r.sequences[0].tokens
+        # Returns: (problem_idx, sample_idx, is_correct, error, content)
+        def evaluate_one_sample(problem_idx, sample_idx, seq):
+            example = self.dataset[problem_idx]
+            response_tokens = seq.tokens
             response_msg = self.renderer.parse_response(response_tokens)[0]
             content = renderers.ensure_text(response_msg["content"])
 
             code = self._extract_code(content)
             if not code:
-                return idx, False, "No code found", content
+                return problem_idx, sample_idx, False, "No code found", content
 
             # Run execution validation
             try:
@@ -158,18 +158,21 @@ class LiveCodeBenchEvaluator(SamplingClientEvaluator):
                     is_extracted=not example["is_stdin"],
                 )
                 is_correct = all(res[0] for res in result_list)
-                return idx, is_correct, "", content
+                return problem_idx, sample_idx, is_correct, "", content
             except Exception as e:
-                return idx, False, str(e), content
+                return problem_idx, sample_idx, False, str(e), content
 
         async def wrapped_sample(idx, prompt):
             res = await sampling_client.sample_async(
-                prompt=prompt, num_samples=1, sampling_params=sampling_params
+                prompt=prompt, num_samples=self.pass_at_k, sampling_params=sampling_params
             )
             return idx, res
 
         num_correct = 0
         logged_results = []
+        # Track results per problem for pass@k
+        problem_results: dict[int, list[dict]] = {i: [] for i in range(len(prompts))}
+        total_exec_jobs = len(prompts) * self.pass_at_k
 
         with ThreadPoolExecutor(max_workers=16) as executor:
             loop = asyncio.get_running_loop()
@@ -193,7 +196,7 @@ class LiveCodeBenchEvaluator(SamplingClientEvaluator):
                     "[cyan]Sampling LiveCodeBench...", total=len(prompts)
                 )
                 exec_task = progress.add_task(
-                    "[cyan]Executing LiveCodeBench...", total=len(prompts)
+                    "[cyan]Executing LiveCodeBench...", total=total_exec_jobs
                 )
 
                 # Process sampling and execution in parallel
@@ -205,32 +208,55 @@ class LiveCodeBenchEvaluator(SamplingClientEvaluator):
 
                     for fut in done:
                         if fut in pending_samples:
-                            # Sampling completed - immediately submit for execution
+                            # Sampling completed - submit all k samples for execution
                             pending_samples.remove(fut)
-                            idx, r = fut.result()
+                            problem_idx, r = fut.result()
                             progress.advance(sample_task)
-                            exec_fut = loop.run_in_executor(
-                                executor, evaluate_one, idx, r
-                            )
-                            pending_execs.add(exec_fut)
+                            if r is not None:
+                                for sample_idx, seq in enumerate(r.sequences):
+                                    exec_fut = loop.run_in_executor(
+                                        executor, evaluate_one_sample, problem_idx, sample_idx, seq
+                                    )
+                                    pending_execs.add(exec_fut)
+                            else:
+                                # No response - mark all samples as failed
+                                for sample_idx in range(self.pass_at_k):
+                                    problem_results[problem_idx].append({
+                                        "sample_idx": sample_idx,
+                                        "content": "",
+                                        "is_correct": False,
+                                        "error": "No response",
+                                    })
+                                    progress.advance(exec_task)
                         else:
                             # Execution completed
                             pending_execs.remove(fut)
-                            idx, is_correct, error, content = fut.result()
-                            if is_correct:
-                                num_correct += 1
-
-                            logged_results.append(
-                                {
-                                    "index": idx,
-                                    "prompt": prompt_texts[idx],
-                                    "response": content,
-                                    "is_correct": is_correct,
-                                    "error": error,
-                                    "difficulty": self.dataset[idx]["difficulty"],
-                                }
-                            )
+                            problem_idx, sample_idx, is_correct, error, content = fut.result()
+                            problem_results[problem_idx].append({
+                                "sample_idx": sample_idx,
+                                "content": content,
+                                "is_correct": is_correct,
+                                "error": error,
+                            })
                             progress.advance(exec_task)
+
+        # Aggregate results per problem for pass@k
+        for problem_idx in range(len(prompts)):
+            samples = problem_results[problem_idx]
+            any_correct = any(s["is_correct"] for s in samples)
+            if any_correct:
+                num_correct += 1
+
+            logged_results.append(
+                {
+                    "index": problem_idx,
+                    "prompt": prompt_texts[problem_idx],
+                    "samples": samples,
+                    "pass_at_k": self.pass_at_k,
+                    "is_correct": any_correct,
+                    "difficulty": self.dataset[problem_idx]["difficulty"],
+                }
+            )
 
         if self.log_dir:
             log_path = Path(self.log_dir)
@@ -243,7 +269,8 @@ class LiveCodeBenchEvaluator(SamplingClientEvaluator):
                     f.write(json.dumps(res) + "\n")
 
         accuracy = num_correct / len(self.dataset) if self.dataset else 0
-        return {"livecodebench_accuracy": accuracy}
+        metric_name = f"livecodebench_pass@{self.pass_at_k}"
+        return {metric_name: accuracy}
 
 
 def livecodebench_evaluator(
@@ -251,6 +278,7 @@ def livecodebench_evaluator(
     model_name: str,
     max_samples: int | None = None,
     log_dir: Optional[str] = None,
+    pass_at_k: int = 1,
 ):
     """Builder function for the trainer."""
     return LiveCodeBenchEvaluator(
@@ -258,6 +286,7 @@ def livecodebench_evaluator(
         renderer_name=renderer_name,
         max_samples=max_samples,
         log_dir=log_dir,
+        pass_at_k=pass_at_k,
     )
 
 

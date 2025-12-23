@@ -2,8 +2,11 @@ import logging
 import asyncio
 import time
 from enum import Enum
+import random
 
 import chz
+import numpy as np
+import torch
 from datasets import concatenate_datasets, load_from_disk, Dataset
 from tinker_cookbook import checkpoint_utils, model_info
 from tinker_cookbook.tokenizer_utils import get_tokenizer
@@ -34,6 +37,17 @@ load_dotenv()
 logger = logging.getLogger(__name__)
 
 
+def set_seed(seed: int = 42) -> None:
+    """Set seeds for reproducibility across all random number generators."""
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(seed)
+        torch.backends.cudnn.deterministic = True
+        torch.backends.cudnn.benchmark = False
+
+
 class CurriculumMode(Enum):
     """Curriculum learning mode for ordering training data by difficulty."""
 
@@ -57,11 +71,12 @@ class Config:
     # model_name: str = "Qwen/Qwen3-8B-Base"
 
     save_every: int = 20
-    eval_every: int = 10
-    infrequent_eval_every: int = 20
+    eval_every: int = 5
+    infrequent_eval_every: int = 10  # cheap but slow, should run more often
 
     dataset_name: str = "openthoughts_code_all_sources_t4096_n100"
-    train_split: float = 0.8
+    train_split: float = 0.9
+    pass_at_k: int = 1
 
     # hp's
     batch_size: int = 32
@@ -186,6 +201,9 @@ def _prepare_curriculum_dataset(
 
 @scope
 async def main(config: Config):
+    # Set global seeds for reproducibility
+    set_seed(42)
+
     if not Path(f"./subsets/{config.dataset_name}/dataset").exists():
         raise FileNotFoundError(f"Dataset {config.dataset_name} not found")
 
@@ -212,7 +230,7 @@ async def main(config: Config):
     log_path.mkdir(parents=True, exist_ok=True)
 
     dataset = load_from_disk(f"./subsets/{config.dataset_name}/dataset")
-    split = dataset.train_test_split(train_size=config.train_split)
+    split = dataset.train_test_split(train_size=config.train_split, seed=42)
     max_tokens = int(
         config.dataset_name.split("_t")[1].split("_")[0]
     )  # fixme: too hardcoded
@@ -252,15 +270,20 @@ async def main(config: Config):
             renderer_name,
             config.model_name,
             log_dir=str(log_path / "inspect"),
+            pass_at_k=1, # @k requires too many samples from inspect_utils.py assert num_responses == 1
         ),
         gpqa_evaluator(
-            renderer_name, config.model_name, log_dir=str(log_path / "gpqa")
+            renderer_name,
+            config.model_name,
+            log_dir=str(log_path / "gpqa"),
+            pass_at_k=config.pass_at_k,
         ),
         livecodebench_evaluator(
             renderer_name,
             config.model_name,
             max_samples=20,
             log_dir=str(log_path / "livecodebench"),
+            pass_at_k=config.pass_at_k,
         ),
     ]
 
@@ -409,6 +432,7 @@ async def main(config: Config):
         config.model_name,
         max_samples=40,  # run a few more samples on final evaluation
         log_dir=str(log_path / "livecodebench"),
+        pass_at_k=config.pass_at_k,
     )
 
     infrequent_eval_metrics = await run_evals(

@@ -37,6 +37,7 @@ class InspectEvaluatorBuilder:
     log_dir: Optional[str] = None
     max_connections: int = 512
     log_level: str = "INFO"
+    pass_at_k: int = 1  # Number of samples per problem for pass@k evaluation
 
     def __call__(self) -> SamplingClientEvaluator:
         return InspectEvaluator(self)
@@ -66,6 +67,7 @@ class InspectEvaluator(SamplingClientEvaluator):
                 top_p=self.config.top_p,
                 top_k=self.config.top_k,
                 seed=self.config.seed,
+                num_choices=self.config.pass_at_k,
             ),
         )
 
@@ -80,7 +82,7 @@ class InspectEvaluator(SamplingClientEvaluator):
             # Although Tinker sampling tries very hard to only throw unrecoverable failures,
             # the inspect evaluation can still fail if e.g. the parser returns an error for
             # a given sample.
-            fail_on_error=False,
+            fail_on_error=True,
             log_dir=self.config.log_dir or os.path.expanduser("~/inspect-logs"),
             max_connections=self.config.max_connections,
             log_level=self.config.log_level,
@@ -89,10 +91,13 @@ class InspectEvaluator(SamplingClientEvaluator):
             max_tokens=self.config.max_tokens,
             log_realtime=False,
             log_buffer=1000,
+            # Use seed for deterministic sample ordering
+            sample_shuffle=self.config.seed,
         )
 
         # Extract metrics from results
         metrics = {}
+        pass_at_k = self.config.pass_at_k
         for task_result in results:
             if (
                 task_result.results is not None
@@ -103,9 +108,11 @@ class InspectEvaluator(SamplingClientEvaluator):
                         dataset_name = task_result.eval.dataset.name
                     else:
                         dataset_name = "unknown"
-                    metrics[dataset_name + "/" + task_name] = score.value  # pyright: ignore[reportOptionalOperand]
+                    # Include pass@k in metric name for clarity
+                    metric_key = f"{dataset_name}/{task_name}_pass@{pass_at_k}"
+                    metrics[metric_key] = score.value  # pyright: ignore[reportOptionalOperand]
 
-        logger.info(f"Inspect evaluation completed. Metrics: {metrics}")
+        logger.info(f"Inspect evaluation completed (pass@{pass_at_k}). Metrics: {metrics}")
         return metrics
 
 
@@ -117,6 +124,7 @@ def aime2025_evaluator(
     limit: int | None = None,
     log_dir: str | None = None,
     seed: int = 42,
+    pass_at_k: int = 1,
 ) -> SamplingClientEvaluator:
     config = InspectEvaluatorBuilder(
         tasks="inspect_evals/aime2025",
@@ -127,5 +135,6 @@ def aime2025_evaluator(
         limit=limit,
         log_dir=log_dir,
         seed=seed,
+        pass_at_k=pass_at_k,
     )
     return InspectEvaluator(config)

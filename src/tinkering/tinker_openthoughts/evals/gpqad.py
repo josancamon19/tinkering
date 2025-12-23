@@ -31,6 +31,7 @@ class GPQADiamondEvaluator(SamplingClientEvaluator):
         max_samples: int = 100,  # GPQA Diamond has ~200 examples, we can limit for speed
         seed: int = 42,
         log_dir: Optional[str] = None,
+        pass_at_k: int = 1,
     ):
         self.model_name = model_name
         tokenizer = get_tokenizer(model_name)
@@ -43,6 +44,7 @@ class GPQADiamondEvaluator(SamplingClientEvaluator):
         self.dataset = ds
         self.seed = seed
         self.log_dir = log_dir
+        self.pass_at_k = pass_at_k
 
     def _format_example(self, row: Any) -> tuple[str, str]:
         """Shuffles options and returns the prompt and the correct letter."""
@@ -106,7 +108,7 @@ class GPQADiamondEvaluator(SamplingClientEvaluator):
 
         async def wrapped_sample(idx, prompt):
             res = await sampling_client.sample_async(
-                prompt=prompt, num_samples=1, sampling_params=sampling_params
+                prompt=prompt, num_samples=self.pass_at_k, sampling_params=sampling_params
             )
             return idx, res
 
@@ -135,24 +137,36 @@ class GPQADiamondEvaluator(SamplingClientEvaluator):
             if r is None:
                 continue
 
-            response_tokens = r.sequences[0].tokens
-            response_msg = self.renderer.parse_response(response_tokens)[0]
-            content = renderers.ensure_text(response_msg["content"])
             correct_letter = correct_letters[i]
-            extracted_answer = self._extract_answer(content)
+            
+            # Check all k samples for pass@k
+            sample_results = []
+            any_correct = False
+            for seq in r.sequences:
+                response_tokens = seq.tokens
+                response_msg = self.renderer.parse_response(response_tokens)[0]
+                content = renderers.ensure_text(response_msg["content"])
+                extracted_answer = self._extract_answer(content)
+                is_sample_correct = extracted_answer == correct_letter
+                sample_results.append({
+                    "content": content,
+                    "extracted_answer": extracted_answer,
+                    "is_correct": is_sample_correct,
+                })
+                if is_sample_correct:
+                    any_correct = True
 
-            is_correct = extracted_answer == correct_letter
-            if is_correct:
+            if any_correct:
                 num_correct += 1
 
             logged_results.append(
                 {
                     "index": i,
                     "prompt": prompt_texts[i],
-                    "response": content,
+                    "samples": sample_results,
                     "correct_answer": correct_letter,
-                    "extracted_answer": extracted_answer,
-                    "is_correct": is_correct,
+                    "pass_at_k": self.pass_at_k,
+                    "is_correct": any_correct,
                 }
             )
 
@@ -167,11 +181,20 @@ class GPQADiamondEvaluator(SamplingClientEvaluator):
                     f.write(json.dumps(res) + "\n")
 
         accuracy = num_correct / len(self.dataset) if self.dataset else 0
-        return {"gpqa_diamond_accuracy": accuracy}
+        metric_name = f"gpqa_diamond_pass@{self.pass_at_k}"
+        return {metric_name: accuracy}
 
 
-def gpqa_evaluator(renderer_name: str, model_name: str, log_dir: Optional[str] = None):
+def gpqa_evaluator(
+    renderer_name: str,
+    model_name: str,
+    log_dir: Optional[str] = None,
+    pass_at_k: int = 1,
+):
     """Builder function for the trainer."""
     return GPQADiamondEvaluator(
-        model_name=model_name, renderer_name=renderer_name, log_dir=log_dir
+        model_name=model_name,
+        renderer_name=renderer_name,
+        log_dir=log_dir,
+        pass_at_k=pass_at_k,
     )

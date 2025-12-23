@@ -318,6 +318,9 @@ def main():
     # Build table data
     st.subheader(f"Results ({len(results)} samples)")
 
+    # Sort by index
+    results = sorted(results, key=lambda r: r["index"])
+
     # Table with columns: Index, Status, Change, Prompt Brief, View
     for i, result in enumerate(results):
         idx = result["index"]
