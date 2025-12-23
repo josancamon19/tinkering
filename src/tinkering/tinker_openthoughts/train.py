@@ -67,8 +67,19 @@ class CurriculumMode(Enum):
 @chz.chz
 class Config:
     wandb_project: str = "tinkering-openthoughts"
-    model_name: str = "Qwen/Qwen3-4B-Instruct-2507"
+
+    # model_name: str = "meta-llama/Llama-3.2-1B"
+    # model_name: str = "meta-llama/Llama-3.2-3B"
+    # model_name: str = "meta-llama/Llama-3.1-8B"
+    # model_name: str = "meta-llama/Llama-3.1-8B-Instruct"
+    # model_name: str = "openai/gpt-oss-20b"
+    model_name: str = "Qwen/Qwen3-30B-A3B-Base"
+
+
+
+    # model_name: str = "Qwen/Qwen3-4B-Instruct-2507"
     # model_name: str = "Qwen/Qwen3-8B-Base"
+    # model_name: str = "Qwen/Qwen3-8B"
 
     save_every: int = 20
     eval_every: int = 5
@@ -266,25 +277,25 @@ async def main(config: Config):
     ]
     infrequent_evaluators = [
         # evaluator() for evaluator in config.infrequent_evaluator_builders
-        aime2025_evaluator(
-            renderer_name,
-            config.model_name,
-            log_dir=str(log_path / "inspect"),
-            pass_at_k=1, # @k requires too many samples from inspect_utils.py assert num_responses == 1
-        ),
+        # aime2025_evaluator(
+        #     renderer_name,
+        #     config.model_name,
+        #     log_dir=str(log_path / "inspect"),
+        #     pass_at_k=1,  # @k requires too many samples from inspect_utils.py assert num_responses == 1
+        # ),
         gpqa_evaluator(
             renderer_name,
             config.model_name,
             log_dir=str(log_path / "gpqa"),
             pass_at_k=config.pass_at_k,
         ),
-        livecodebench_evaluator(
-            renderer_name,
-            config.model_name,
-            max_samples=20,
-            log_dir=str(log_path / "livecodebench"),
-            pass_at_k=config.pass_at_k,
-        ),
+        # livecodebench_evaluator(
+        #     renderer_name,
+        #     config.model_name,
+        #     max_samples=20,
+        #     log_dir=str(log_path / "livecodebench"),
+        #     pass_at_k=config.pass_at_k,
+        # ),
     ]
 
     @scope
@@ -410,6 +421,7 @@ async def main(config: Config):
 
         # Emit all metrics for this step (train and eval) on the `submitted.step` row.
         ml_logger.log_metrics(metrics=metrics, step=submitted.step)
+        raise Exception("Stop here")
 
     pending_batch: SubmittedBatch | None = None
     start_batch, start_epoch = 0, 0
