@@ -1,9 +1,11 @@
 import asyncio
+import hashlib
+import json
 import random
 import re
 from pathlib import Path
-import json
 from typing import Any, Optional
+
 from datasets import load_dataset
 from rich.console import Console
 from rich.progress import (
@@ -17,6 +19,11 @@ import tinker
 from tinker_cookbook import renderers
 from tinker_cookbook.eval.evaluators import SamplingClientEvaluator
 from tinker_cookbook.tokenizer_utils import get_tokenizer
+
+
+def stable_hash(s: str) -> int:
+    """Deterministic hash that's consistent across Python runs."""
+    return int(hashlib.md5(s.encode()).hexdigest(), 16)
 
 
 class GPQADiamondEvaluator(SamplingClientEvaluator):
@@ -55,7 +62,8 @@ class GPQADiamondEvaluator(SamplingClientEvaluator):
             row["Incorrect Answer 3"],
         ]
         # Use a fixed seed per question index for reproducibility across eval runs
-        rng = random.Random(hash(row["Question"]) + self.seed)
+        # Note: Python's hash() is NOT deterministic across runs, so we use stable_hash
+        rng = random.Random(stable_hash(row["Question"]) + self.seed)
         rng.shuffle(choices)
 
         letters = ["A", "B", "C", "D"]
