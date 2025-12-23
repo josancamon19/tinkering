@@ -67,17 +67,7 @@ class CurriculumMode(Enum):
 @chz.chz
 class Config:
     wandb_project: str = "tinkering-openthoughts"
-
-    # model_name: str = "meta-llama/Llama-3.2-1B"
-    # model_name: str = "meta-llama/Llama-3.2-3B"
-    # model_name: str = "meta-llama/Llama-3.1-8B"
-    # model_name: str = "meta-llama/Llama-3.1-8B-Instruct"
-    # model_name: str = "openai/gpt-oss-20b"
-    # model_name: str = "Qwen/Qwen3-30B-A3B-Base"
-
     model_name: str = "Qwen/Qwen3-4B-Instruct-2507"
-    # model_name: str = "Qwen/Qwen3-8B-Base"
-    # model_name: str = "Qwen/Qwen3-8B"
 
     save_every: int = 20
     eval_every: int = 5
@@ -85,7 +75,7 @@ class Config:
 
     dataset_name: str = "openthoughts_code_all_sources_t4096_n100"
     train_split: float = 0.9
-    pass_at_k: int = 1
+    pass_at_k: int = 7
 
     # hp's
     batch_size: int = 32
@@ -278,19 +268,21 @@ async def main(config: Config):
         aime2025_evaluator(
             renderer_name,
             config.model_name,
+            # is 30 all he samples
             log_dir=str(log_path / "inspect"),
             pass_at_k=config.pass_at_k,
         ),
         gpqa_evaluator(
             renderer_name,
             config.model_name,
+            max_samples=50, # out of 100
             log_dir=str(log_path / "gpqa"),
             pass_at_k=config.pass_at_k,
         ),
         livecodebench_evaluator(
             renderer_name,
             config.model_name,
-            max_samples=20,
+            max_samples=30, # out of 200? takes longest
             log_dir=str(log_path / "livecodebench"),
             pass_at_k=config.pass_at_k,
         ),
@@ -437,15 +429,7 @@ async def main(config: Config):
     if pending_batch is not None:
         await finish_batch(pending_batch)
 
-    infrequent_evaluators[-1] = livecodebench_evaluator(
-        renderer_name,
-        config.model_name,
-        max_samples=40,  # run a few more samples on final evaluation
-        log_dir=str(log_path / "livecodebench"),
-        pass_at_k=config.pass_at_k,
-    )
-
-    infrequent_eval_metrics = await run_evals(
+    infrequent_eval_metrics = await run_evals(  # TODO: run the whole eval (?)
         evaluators + infrequent_evaluators, training_client, total_steps, prefix="eval/"
     )
     ml_logger.log_metrics(infrequent_eval_metrics, step=total_steps)

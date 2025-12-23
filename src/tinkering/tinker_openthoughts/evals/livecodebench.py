@@ -91,7 +91,11 @@ class LiveCodeBenchEvaluator(SamplingClientEvaluator):
             )
             processed_examples.append(map_to_example(row_copy))
 
-        if max_samples and max_samples < len(processed_examples):
+        if max_samples is not None and max_samples < len(processed_examples):
+            # Deterministically shuffle and select samples
+            import random
+            rng = random.Random(seed)
+            rng.shuffle(processed_examples)
             processed_examples = processed_examples[:max_samples]
 
         self.dataset = processed_examples

@@ -35,7 +35,7 @@ class GPQADiamondEvaluator(SamplingClientEvaluator):
         self,
         model_name: str,
         renderer_name: str,
-        max_samples: int = 100,  # GPQA Diamond has ~200 examples, we can limit for speed
+        max_samples: Optional[int] = None,
         seed: int = 42,
         log_dir: Optional[str] = None,
         pass_at_k: int = 1,
@@ -46,8 +46,9 @@ class GPQADiamondEvaluator(SamplingClientEvaluator):
 
         # Load and subsample dataset
         ds = load_dataset("Idavidrein/gpqa", "gpqa_diamond", split="train")
-        if max_samples < len(ds):
-            ds = ds.select(range(max_samples))
+        if max_samples is not None and max_samples < len(ds):
+            # Deterministically shuffle and select samples
+            ds = ds.shuffle(seed=seed).select(range(max_samples))
         self.dataset = ds
         self.seed = seed
         self.log_dir = log_dir
@@ -116,7 +117,9 @@ class GPQADiamondEvaluator(SamplingClientEvaluator):
 
         async def wrapped_sample(idx, prompt):
             res = await sampling_client.sample_async(
-                prompt=prompt, num_samples=self.pass_at_k, sampling_params=sampling_params
+                prompt=prompt,
+                num_samples=self.pass_at_k,
+                sampling_params=sampling_params,
             )
             return idx, res
 
@@ -146,7 +149,7 @@ class GPQADiamondEvaluator(SamplingClientEvaluator):
                 continue
 
             correct_letter = correct_letters[i]
-            
+
             # Check all k samples for pass@k
             sample_results = []
             any_correct = False
@@ -156,11 +159,13 @@ class GPQADiamondEvaluator(SamplingClientEvaluator):
                 content = renderers.ensure_text(response_msg["content"])
                 extracted_answer = self._extract_answer(content)
                 is_sample_correct = extracted_answer == correct_letter
-                sample_results.append({
-                    "content": content,
-                    "extracted_answer": extracted_answer,
-                    "is_correct": is_sample_correct,
-                })
+                sample_results.append(
+                    {
+                        "content": content,
+                        "extracted_answer": extracted_answer,
+                        "is_correct": is_sample_correct,
+                    }
+                )
                 if is_sample_correct:
                     any_correct = True
 
@@ -196,6 +201,7 @@ class GPQADiamondEvaluator(SamplingClientEvaluator):
 def gpqa_evaluator(
     renderer_name: str,
     model_name: str,
+    max_samples: Optional[int] = None,
     log_dir: Optional[str] = None,
     pass_at_k: int = 1,
 ):
@@ -203,6 +209,7 @@ def gpqa_evaluator(
     return GPQADiamondEvaluator(
         model_name=model_name,
         renderer_name=renderer_name,
+        max_samples=max_samples,
         log_dir=log_dir,
         pass_at_k=pass_at_k,
     )
