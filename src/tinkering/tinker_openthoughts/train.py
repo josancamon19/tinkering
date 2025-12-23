@@ -213,7 +213,9 @@ async def main(config: Config):
 
     dataset = load_from_disk(f"./subsets/{config.dataset_name}/dataset")
     split = dataset.train_test_split(train_size=config.train_split)
-    max_tokens = int(config.dataset_name.split("_t")[1].split("_")[0]) # fixme: too hardcoded
+    max_tokens = int(
+        config.dataset_name.split("_t")[1].split("_")[0]
+    )  # fixme: too hardcoded
 
     # Prepare train dataset with curriculum ordering (if enabled)
     train_dataset = _prepare_curriculum_dataset(
@@ -402,14 +404,13 @@ async def main(config: Config):
     if pending_batch is not None:
         await finish_batch(pending_batch)
 
-    infrequent_evaluators[-1] = (
-        livecodebench_evaluator(
-            renderer_name,
-            config.model_name,
-            max_samples=40,  # run a few more samples on final evaluation
-            log_dir=str(log_path / "livecodebench"),
-        ),
+    infrequent_evaluators[-1] = livecodebench_evaluator(
+        renderer_name,
+        config.model_name,
+        max_samples=40,  # run a few more samples on final evaluation
+        log_dir=str(log_path / "livecodebench"),
     )
+
     infrequent_eval_metrics = await run_evals(
         evaluators + infrequent_evaluators, training_client, total_steps, prefix="eval/"
     )

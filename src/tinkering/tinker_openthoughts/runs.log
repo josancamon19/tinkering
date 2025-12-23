@@ -1,0 +1,26 @@
+# BATCH SIZE
+
+uv run python src/tinkering/tinker_openthoughts/train.py dataset_name=openthoughts_all_domains_ai2_adapt_dev_openmath_2_math_t4096_n500 train_split=0.90 batch_size=32 lora_rank=32
+
+uv run python src/tinkering/tinker_openthoughts/train.py dataset_name=openthoughts_all_domains_ai2_adapt_dev_openmath_2_math_t4096_n500 train_split=0.90 batch_size=64 lora_rank=32 epochs=10
+
+uv run python src/tinkering/tinker_openthoughts/train.py dataset_name=openthoughts_all_domains_ai2_adapt_dev_openmath_2_math_t4096_n500 train_split=0.90 batch_size=128 lora_rank=32 epochs=20
+
+# batch size 64 epochs 10 won, better generalization as well? why?
+
+# Comparing for code now:
+
+uv run python src/tinkering/tinker_openthoughts/train.py dataset_name=openthoughts_all_domains_nvidia_OpenCodeReasoning_t4096_n500 train_split=0.90 batch_size=32 lora_rank=32 epochs=5
+
+uv run python src/tinkering/tinker_openthoughts/train.py dataset_name=openthoughts_all_domains_nvidia_OpenCodeReasoning_t4096_n500 train_split=0.90 batch_size=64 lora_rank=32 epochs=10
+
+# hmmm 32 batch size, 5 epochs was slightly better than 64 batch size, 10 epochs for OpenCodeReasoning, can't ablate for anything, so gonna keep bs10
+
+# LEARNING RATE
+
+uv run python src/tinkering/tinker_openthoughts/train.py dataset_name=openthoughts_all_domains_ai2_adapt_dev_openmath_2_math_t4096_n500 train_split=0.90 lora_rank=32 learning_rate=1e-4 # exploded
+uv run python src/tinkering/tinker_openthoughts/train.py dataset_name=openthoughts_all_domains_ai2_adapt_dev_openmath_2_math_t4096_n500 train_split=0.90 lora_rank=32 learning_rate=5e-5 # still worst than 1e-5
+
+
+# gains seem very little between 32, 64 batch size, and 32 batch size is way cheaper, so gonna keep lr1e-5, bs 32, very stable
+

@@ -89,6 +89,7 @@ class GPQADiamondEvaluator(SamplingClientEvaluator):
             max_tokens=max_tokens,
             temperature=temperature,
             stop=self.renderer.get_stop_sequences(),
+            seed=self.seed,
         )
 
         prompts = []
