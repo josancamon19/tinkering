@@ -73,11 +73,9 @@ class Config:
     # model_name: str = "meta-llama/Llama-3.1-8B"
     # model_name: str = "meta-llama/Llama-3.1-8B-Instruct"
     # model_name: str = "openai/gpt-oss-20b"
-    model_name: str = "Qwen/Qwen3-30B-A3B-Base"
+    # model_name: str = "Qwen/Qwen3-30B-A3B-Base"
 
-
-
-    # model_name: str = "Qwen/Qwen3-4B-Instruct-2507"
+    model_name: str = "Qwen/Qwen3-4B-Instruct-2507"
     # model_name: str = "Qwen/Qwen3-8B-Base"
     # model_name: str = "Qwen/Qwen3-8B"
 
@@ -277,25 +275,25 @@ async def main(config: Config):
     ]
     infrequent_evaluators = [
         # evaluator() for evaluator in config.infrequent_evaluator_builders
-        # aime2025_evaluator(
-        #     renderer_name,
-        #     config.model_name,
-        #     log_dir=str(log_path / "inspect"),
-        #     pass_at_k=1,  # @k requires too many samples from inspect_utils.py assert num_responses == 1
-        # ),
+        aime2025_evaluator(
+            renderer_name,
+            config.model_name,
+            log_dir=str(log_path / "inspect"),
+            pass_at_k=config.pass_at_k,
+        ),
         gpqa_evaluator(
             renderer_name,
             config.model_name,
             log_dir=str(log_path / "gpqa"),
             pass_at_k=config.pass_at_k,
         ),
-        # livecodebench_evaluator(
-        #     renderer_name,
-        #     config.model_name,
-        #     max_samples=20,
-        #     log_dir=str(log_path / "livecodebench"),
-        #     pass_at_k=config.pass_at_k,
-        # ),
+        livecodebench_evaluator(
+            renderer_name,
+            config.model_name,
+            max_samples=20,
+            log_dir=str(log_path / "livecodebench"),
+            pass_at_k=config.pass_at_k,
+        ),
     ]
 
     @scope
