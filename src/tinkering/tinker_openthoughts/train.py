@@ -68,14 +68,13 @@ class CurriculumMode(Enum):
 class Config:
     wandb_project: str = "tinkering-openthoughts"
     model_name: str = "Qwen/Qwen3-4B-Instruct-2507"
+    dataset_name: str = "openthoughts_code_all_sources_t4096_n100"
 
     save_every: int = 20
     eval_every: int = 5
     infrequent_eval_every: int = 10  # cheap but slow, should run more often
-
-    dataset_name: str = "openthoughts_code_all_sources_t4096_n100"
-    train_split: float = 0.9
     pass_at_k: int = 7
+    train_split: float = 0.9
 
     # hp's
     batch_size: int = 32
@@ -275,14 +274,14 @@ async def main(config: Config):
         gpqa_evaluator(
             renderer_name,
             config.model_name,
-            max_samples=50, # out of 100
+            max_samples=50,  # out of 100
             log_dir=str(log_path / "gpqa"),
             pass_at_k=config.pass_at_k,
         ),
         livecodebench_evaluator(
             renderer_name,
             config.model_name,
-            max_samples=30, # out of 200? takes longest
+            max_samples=30,  # out of 200? takes longest
             log_dir=str(log_path / "livecodebench"),
             pass_at_k=config.pass_at_k,
         ),
@@ -411,7 +410,7 @@ async def main(config: Config):
 
         # Emit all metrics for this step (train and eval) on the `submitted.step` row.
         ml_logger.log_metrics(metrics=metrics, step=submitted.step)
-        raise Exception("Stop here")
+        # raise Exception("Stop here")
 
     pending_batch: SubmittedBatch | None = None
     start_batch, start_epoch = 0, 0
