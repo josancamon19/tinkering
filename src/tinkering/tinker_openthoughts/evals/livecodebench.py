@@ -170,7 +170,7 @@ class LiveCodeBenchEvaluator(SamplingClientEvaluator):
         num_correct = 0
         logged_results = []
 
-        with ThreadPoolExecutor(max_workers=32) as executor:
+        with ThreadPoolExecutor(max_workers=16) as executor:
             loop = asyncio.get_running_loop()
 
             # Create all sampling tasks

@@ -1,8 +1,10 @@
 import logging
 import asyncio
 import time
+from enum import Enum
+
 import chz
-from datasets import concatenate_datasets, load_from_disk
+from datasets import concatenate_datasets, load_from_disk, Dataset
 from tinker_cookbook import checkpoint_utils, model_info
 from tinker_cookbook.tokenizer_utils import get_tokenizer
 from tinker_cookbook.utils import ml_log
@@ -11,106 +13,41 @@ from pathlib import Path
 from dotenv import load_dotenv
 from tinker import types
 from tinker_cookbook.utils.trace import scope, update_scope_context
-import math
 from tinker_cookbook.supervised.train import (
-    EvaluatorBuilder,
     SubmittedBatch,
     compute_mean_nll,
-)
-from tinker_cookbook.eval.evaluators import (
-    Evaluator,
-    SamplingClientEvaluator,
-    TrainingClientEvaluator,
 )
 from tinker_cookbook.utils.misc_utils import timed
 from tinker_cookbook.renderers import get_renderer, TrainOnWhat
 
-from tinkering.tinker_openthoughts.common import openthoughts_row_to_datum
-from tinkering.tinker_openthoughts.evals.nll import NLLEvaluator
+from tinkering.tinker_openthoughts.common import (
+    openthoughts_row_to_datum,
+    run_evals,
+    compute_cosine_lr_with_warmup,
+)
 from tinkering.tinker_openthoughts.evals.aime import aime2025_evaluator
 from tinkering.tinker_openthoughts.evals.gpqad import gpqa_evaluator
 from tinkering.tinker_openthoughts.evals.livecodebench import livecodebench_evaluator
+from tinkering.tinker_openthoughts.evals.nll import NLLEvaluator
 
 load_dotenv()
 logger = logging.getLogger(__name__)
 
 
-@scope
-async def run_evals(
-    evaluators: list[Evaluator],
-    training_client: tinker.TrainingClient,
-    step: int,
-    prefix: str = "",
-) -> dict[str, float]:
-    """
-    Run evaluators in parallel and pass step to each one.
+class CurriculumMode(Enum):
+    """Curriculum learning mode for ordering training data by difficulty."""
 
-    This is a custom version that passes `step` to evaluators so they can
-    include it in their logs for tracing training evolution.
+    NONE = "none"
+    """No curriculum ordering (original behavior)"""
 
-    Args:
-        evaluators: List of evaluators to run
-        training_client: The training client
-        step: Current training step
-    """
-    update_scope_context({"step": step})
+    EASY_TO_HARD = "easy_to_hard"
+    """Order samples from lowest to highest difficulty"""
 
-    # Check if any evaluators need a sampling client
-    sampling_evaluators = [
-        e for e in evaluators if isinstance(e, SamplingClientEvaluator)
-    ]
+    FIRST_EPOCH_ONLY = "first_epoch_only"
+    """Curriculum ordering on first epoch only, shuffle remaining epochs"""
 
-    # Create sampling client upfront if any sampling evaluators exist
-    sampling_client = None
-    if sampling_evaluators:
-        sampling_client = (
-            await training_client.save_weights_and_get_sampling_client_async(
-                f"evals_step_{step}"
-            )
-        )
-
-    @scope
-    async def run_evaluator(evaluator: Evaluator) -> dict[str, float]:
-        update_scope_context(
-            {
-                "step": step,
-                "evaluator_name": type(evaluator).__name__,
-            }
-        )
-        if isinstance(evaluator, TrainingClientEvaluator):
-            update_scope_context({"evaluator_type": "TrainingClientEvaluator"})
-            try:
-                return await evaluator(training_client, step=step)
-            except TypeError:
-                return await evaluator(training_client)
-        elif isinstance(evaluator, SamplingClientEvaluator):
-            update_scope_context({"evaluator_type": "SamplingClientEvaluator"})
-            try:
-                return await evaluator(sampling_client, step=step)
-            except TypeError:
-                return await evaluator(sampling_client)
-        else:
-            raise ValueError(f"Unknown evaluator type: {type(evaluator)}")
-
-    # Run all evaluators in parallel
-    all_results = await asyncio.gather(*[run_evaluator(e) for e in evaluators])
-
-    # Merge all metrics with prefix
-    metrics = {}
-    accuracy_values = []
-    for eval_metrics in all_results:
-        for key, value in eval_metrics.items():
-            prefixed_key = f"{prefix}{key}" if prefix else key
-            metrics[prefixed_key] = value
-            # Collect accuracy metrics for averaging
-            if "accuracy" in key.lower() and isinstance(value, (int, float)):
-                accuracy_values.append(value)
-
-    # Add average accuracy if we have multiple accuracy metrics
-    if prefix and accuracy_values:
-        metrics[f"{prefix}avg_accuracy"] = sum(accuracy_values) / len(accuracy_values)
-
-    return metrics
+    GROUPED_SHUFFLE = "grouped_shuffle"
+    """Pool all epochs, group by difficulty, shuffle within each group, concat easy->hard"""
 
 
 @chz.chz
@@ -121,53 +58,130 @@ class Config:
 
     save_every: int = 20
     eval_every: int = 10
-    infrequent_eval_every: int = 50
+    infrequent_eval_every: int = 20
 
     dataset_name: str = "openthoughts_code_all_sources_t4096_n100"
     train_split: float = 0.8
-    lora_rank: int = 32
 
     # hp's
     batch_size: int = 32
     learning_rate: float = 1e-5
     epochs: int = 5
+    curriculum_mode: CurriculumMode = CurriculumMode.NONE
+    lora_rank: int = 32
     # TODO: setup some hp tunning with some hp finding tool
 
 
-def compute_cosine_lr_with_warmup(
-    step: int,
-    total_steps: int,
-    warmup_ratio: float = 0.1,
-) -> float:
-    """
-    Compute learning rate multiplier with linear warmup and cosine decay.
-
-    Args:
-        step: Current training step (0-indexed)
-        total_steps: Total number of training steps
-        warmup_ratio: Fraction of total steps for warmup (default 10%)
-
-    Returns:
-        Learning rate multiplier in [0, 1]
-    """
-    warmup_steps = int(warmup_ratio * total_steps)
-
-    if step < warmup_steps:
-        # Linear warmup from 0 to 1
-        return step / warmup_steps
-    else:
-        # Cosine decay from 1 to 0 over remaining steps
-        progress = (step - warmup_steps) / (total_steps - warmup_steps)
-        return 0.5 * (1 + math.cos(math.pi * progress))
-
-
-def _setup_logging(config: Config, log_path: Path):
+def _setup_logging(config: Config, log_path: Path, run_name: str):
     return ml_log.setup_logging(
         log_dir=log_path,
         wandb_project=config.wandb_project,
+        wandb_name=run_name,
         config=config,
         do_configure_logging_module=True,
     )
+
+
+def _validate_difficulty_field(dataset: Dataset) -> None:
+    """Validate that all items in the dataset have a non-None difficulty value.
+
+    Raises:
+        ValueError: If any item has a None difficulty value.
+    """
+    if "difficulty" not in dataset.column_names:
+        raise ValueError(
+            "Curriculum mode requires a 'difficulty' column in the dataset, "
+            "but no such column exists."
+        )
+
+    difficulties = dataset["difficulty"]
+    none_indices = [i for i, d in enumerate(difficulties) if d is None]
+
+    if none_indices:
+        sample_indices = none_indices[:5]
+        raise ValueError(
+            f"Curriculum mode requires all items to have a non-None difficulty value. "
+            f"Found {len(none_indices)} items with None difficulty. "
+            f"Sample indices with None difficulty: {sample_indices}"
+        )
+
+
+def _prepare_curriculum_dataset(
+    train_split: Dataset,
+    curriculum_mode: CurriculumMode,
+    epochs: int,
+) -> Dataset:
+    """Prepare the training dataset with curriculum ordering.
+
+    Args:
+        train_split: The training split of the dataset.
+        curriculum_mode: The curriculum learning mode.
+        epochs: Number of training epochs.
+
+    Returns:
+        The prepared training dataset with appropriate ordering.
+    """
+    if curriculum_mode == CurriculumMode.NONE:
+        # Original behavior: just concatenate epochs
+        return concatenate_datasets([train_split] * epochs)
+
+    # Validate that all items have difficulty values
+    _validate_difficulty_field(train_split)
+
+    # Sort by difficulty (ascending = easy to hard)
+    difficulties = train_split["difficulty"]
+    sorted_indices = sorted(range(len(train_split)), key=lambda i: difficulties[i])
+    ordered_train = train_split.select(sorted_indices)
+
+    logger.info(
+        f"Curriculum ordering applied: difficulty range {min(difficulties)} -> {max(difficulties)}"
+    )
+
+    if curriculum_mode == CurriculumMode.EASY_TO_HARD:
+        # All epochs follow the same easy-to-hard order
+        return concatenate_datasets([ordered_train] * epochs)
+
+    elif curriculum_mode == CurriculumMode.FIRST_EPOCH_ONLY:
+        # First epoch ordered, remaining epochs shuffled
+        if epochs == 1:
+            return ordered_train
+
+        shuffled_epochs = concatenate_datasets(
+            [train_split.shuffle(seed=42 + i) for i in range(1, epochs)]
+        )
+        return concatenate_datasets([ordered_train, shuffled_epochs])
+
+    elif curriculum_mode == CurriculumMode.GROUPED_SHUFFLE:
+        # Pool all epochs together, group by difficulty, shuffle within groups
+        # This avoids consecutive repeats while maintaining easy->hard curriculum
+        expanded_dataset = concatenate_datasets([train_split] * epochs)
+        all_difficulties = expanded_dataset["difficulty"]
+
+        # Group indices by difficulty level
+        from collections import defaultdict
+        import random
+
+        difficulty_groups: dict[int, list[int]] = defaultdict(list)
+        for idx, diff in enumerate(all_difficulties):
+            difficulty_groups[diff].append(idx)
+
+        # Shuffle within each difficulty group and concatenate in order
+        random.seed(42)
+        ordered_indices = []
+        for difficulty in sorted(difficulty_groups.keys()):
+            group_indices = difficulty_groups[difficulty]
+            random.shuffle(group_indices)
+            ordered_indices.extend(group_indices)
+
+        logger.info(
+            f"Grouped shuffle: {len(difficulty_groups)} difficulty levels, "
+            f"{len(ordered_indices)} total samples"
+        )
+
+        return expanded_dataset.select(ordered_indices)
+
+    else:
+        raise ValueError(f"Unknown curriculum mode: {curriculum_mode}")
 
 
 @scope
@@ -177,12 +191,19 @@ async def main(config: Config):
 
     # Construct the configuration name
     model_id = config.model_name.replace("/", "_")
+    curriculum_suffix = (
+        f"_c{config.curriculum_mode.value}"
+        if config.curriculum_mode != CurriculumMode.NONE
+        else ""
+    )
     config_name = (
         f"{config.dataset_name}"
         f"_s{config.train_split}"
         f"_bs{config.batch_size}"
         f"_lr{config.learning_rate}"
         f"_e{config.epochs}"
+        f"_r{config.lora_rank}"
+        f"{curriculum_suffix}"
         f"_{model_id}"
     )
 
@@ -192,10 +213,14 @@ async def main(config: Config):
 
     dataset = load_from_disk(f"./subsets/{config.dataset_name}/dataset")
     split = dataset.train_test_split(train_size=config.train_split)
-    max_tokens = int(config.dataset_name.split("sources_t")[1].split("_")[0])
+    max_tokens = int(config.dataset_name.split("_t")[1].split("_")[0]) # fixme: too hardcoded
 
-    # Repeat train dataset for multiple epochs (simplifies batch indexing)
-    train_dataset = concatenate_datasets([split["train"]] * config.epochs)
+    # Prepare train dataset with curriculum ordering (if enabled)
+    train_dataset = _prepare_curriculum_dataset(
+        train_split=split["train"],
+        curriculum_mode=config.curriculum_mode,
+        epochs=config.epochs,
+    )
     test_dataset = split["test"]
 
     # Training loop counts
@@ -203,7 +228,7 @@ async def main(config: Config):
     total_steps = batches_per_epoch * config.epochs
     progress_denominator = max(total_steps, 1)
 
-    ml_logger = _setup_logging(config, log_path)
+    ml_logger = _setup_logging(config, log_path, run_name=config_name)
 
     service_client = tinker.ServiceClient()
     training_client = service_client.create_lora_training_client(
@@ -217,7 +242,7 @@ async def main(config: Config):
 
     # TODO: couldn't figure the structure to pass as parameter
     evaluators = [
-        # NLLEvaluator.from_split(test_dataset, renderer, max_tokens, name="test")
+        NLLEvaluator.from_split(test_dataset, renderer, max_tokens, name="test")
     ]
     infrequent_evaluators = [
         # evaluator() for evaluator in config.infrequent_evaluator_builders
@@ -376,6 +401,19 @@ async def main(config: Config):
 
     if pending_batch is not None:
         await finish_batch(pending_batch)
+
+    infrequent_evaluators[-1] = (
+        livecodebench_evaluator(
+            renderer_name,
+            config.model_name,
+            max_samples=40,  # run a few more samples on final evaluation
+            log_dir=str(log_path / "livecodebench"),
+        ),
+    )
+    infrequent_eval_metrics = await run_evals(
+        evaluators + infrequent_evaluators, training_client, total_steps, prefix="eval/"
+    )
+    ml_logger.log_metrics(infrequent_eval_metrics, step=total_steps)
 
     if start_epoch < config.epochs:
         await checkpoint_utils.save_checkpoint_async(
