@@ -12,6 +12,7 @@ from datasets import concatenate_datasets, load_from_disk, Dataset
 from tinker_cookbook import checkpoint_utils, model_info
 from tinker_cookbook.tokenizer_utils import get_tokenizer
 from tinker_cookbook.utils import ml_log
+import wandb
 import tinker
 from pathlib import Path
 from dotenv import load_dotenv
@@ -81,7 +82,7 @@ class Config:
 
     save_every: int = 20
     eval_every: int = 5
-    infrequent_eval_every: int = 10  # cheap but slow, should run more often
+    infrequent_eval_every: int = 20  # cheap but slow, should run more often
     pass_at_k: int = 7
     train_split: float = 0.9
 
@@ -259,6 +260,10 @@ async def main(config: Config):
 
     ml_logger = _setup_logging(config, log_path, run_name=config_name)
 
+    # Define custom step metric so deferred evals can log to earlier steps
+    # Without this, W&B only allows logging in increasing step order
+    wandb.define_metric("*", step_metric="step")
+
     service_client = tinker.ServiceClient()
     training_client = service_client.create_lora_training_client(
         base_model=config.model_name, rank=config.lora_rank
@@ -282,20 +287,20 @@ async def main(config: Config):
             log_dir=str(log_path / "inspect"),
             pass_at_k=config.pass_at_k,
         ),
-        gpqa_evaluator(
-            renderer_name,
-            config.model_name,
-            max_samples=50,  # out of 100
-            log_dir=str(log_path / "gpqa"),
-            pass_at_k=config.pass_at_k,
-        ),
-        livecodebench_evaluator(
-            renderer_name,
-            config.model_name,
-            max_samples=30,  # out of 200? takes longest
-            log_dir=str(log_path / "livecodebench"),
-            pass_at_k=config.pass_at_k,
-        ),
+        # gpqa_evaluator(
+        #     renderer_name,
+        #     config.model_name,
+        #     max_samples=50,  # out of 100
+        #     log_dir=str(log_path / "gpqa"),
+        #     pass_at_k=config.pass_at_k,
+        # ),
+        # livecodebench_evaluator(
+        #     renderer_name,
+        #     config.model_name,
+        #     max_samples=30,  # out of 200? takes longest
+        #     log_dir=str(log_path / "livecodebench"),
+        #     pass_at_k=config.pass_at_k,
+        # ),
     ]
 
     # Storage for deferred evaluations in full_parallel mode
@@ -449,6 +454,8 @@ async def main(config: Config):
             metrics.update(submitted.infrequent_eval_metrics)
 
         # Emit all metrics for this step (train and eval) on the `submitted.step` row.
+        # Include step in metrics dict for custom step_metric axis
+        metrics["step"] = submitted.step
         ml_logger.log_metrics(metrics=metrics, step=submitted.step)
         # raise Exception("Stop here")
 
@@ -493,10 +500,12 @@ async def main(config: Config):
             *[run_deferred_eval(d) for d in deferred_evals]
         )
 
-        # Log all deferred metrics
-        for deferred, metrics in zip(deferred_evals, all_deferred_results):
-            if metrics:
-                ml_logger.log_metrics(metrics, step=deferred.step)
+        # Log all deferred metrics directly with wandb.log (no step= param)
+        # This allows out-of-order logging via the define_metric step_metric
+        for deferred, eval_metrics in zip(deferred_evals, all_deferred_results):
+            if eval_metrics:
+                eval_metrics["step"] = deferred.step
+                wandb.log(eval_metrics)  # No step= param, uses "step" key from dict
                 logger.info(f"Logged deferred infrequent eval metrics for step {deferred.step}")
 
         # Also run final evaluation at total_steps (both frequent and infrequent)
@@ -506,6 +515,7 @@ async def main(config: Config):
             total_steps,
             prefix="eval/",
         )
+        final_eval_metrics["step"] = total_steps
         ml_logger.log_metrics(final_eval_metrics, step=total_steps)
 
     else:
@@ -516,6 +526,7 @@ async def main(config: Config):
             total_steps,
             prefix="eval/",
         )
+        infrequent_eval_metrics["step"] = total_steps
         ml_logger.log_metrics(infrequent_eval_metrics, step=total_steps)
 
     if start_epoch < config.epochs:

@@ -178,7 +178,7 @@ class LiveCodeBenchEvaluator(SamplingClientEvaluator):
         problem_results: dict[int, list[dict]] = {i: [] for i in range(len(prompts))}
         total_exec_jobs = len(prompts) * self.pass_at_k
 
-        with ThreadPoolExecutor(max_workers=16) as executor:
+        with ThreadPoolExecutor(max_workers=8) as executor:
             loop = asyncio.get_running_loop()
 
             # Create all sampling tasks
