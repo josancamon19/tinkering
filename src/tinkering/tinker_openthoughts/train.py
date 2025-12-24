@@ -72,7 +72,7 @@ class Config:
 
     save_every: int = 20
     eval_every: int = 5
-    infrequent_eval_every: int = 10  # cheap but slow, should run more often
+    infrequent_eval_every: int = 20  # cheap but slow, should run more often
     pass_at_k: int = 7
     train_split: float = 0.9
 
@@ -82,7 +82,6 @@ class Config:
     epochs: int = 5
     curriculum_mode: CurriculumMode = CurriculumMode.NONE
     lora_rank: int = 32
-    # TODO: setup some hp tunning with some hp finding tool
 
 
 def _setup_logging(config: Config, log_path: Path, run_name: str):
