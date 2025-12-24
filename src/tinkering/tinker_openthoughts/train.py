@@ -1,6 +1,7 @@
 import logging
 import asyncio
 import time
+from dataclasses import dataclass
 from enum import Enum
 import random
 
@@ -35,6 +36,14 @@ from tinkering.tinker_openthoughts.evals.nll import NLLEvaluator
 
 load_dotenv()
 logger = logging.getLogger(__name__)
+
+
+@dataclass
+class DeferredEval:
+    """Stores information needed to run infrequent evaluations in full_parallel mode."""
+
+    step: int
+    sampling_client: tinker.SamplingClient
 
 
 def set_seed(seed: int = 42) -> None:
@@ -72,7 +81,7 @@ class Config:
 
     save_every: int = 20
     eval_every: int = 5
-    infrequent_eval_every: int = 20  # cheap but slow, should run more often
+    infrequent_eval_every: int = 10  # cheap but slow, should run more often
     pass_at_k: int = 7
     train_split: float = 0.9
 
@@ -82,6 +91,9 @@ class Config:
     epochs: int = 5
     curriculum_mode: CurriculumMode = CurriculumMode.NONE
     lora_rank: int = 32
+
+    # Full parallel mode: trains entirely first, then runs all evals in parallel at the end
+    full_parallel: bool = False
 
 
 def _setup_logging(config: Config, log_path: Path, run_name: str):
@@ -286,6 +298,9 @@ async def main(config: Config):
         ),
     ]
 
+    # Storage for deferred evaluations in full_parallel mode
+    deferred_evals: list[DeferredEval] = []
+
     @scope
     async def submit_batch(epoch_idx: int, batch_idx: int) -> SubmittedBatch:
         step = epoch_idx * batches_per_epoch + batch_idx
@@ -319,24 +334,50 @@ async def main(config: Config):
                 for row in rows
             ]
 
+        # Check if we should run evals at this step
+        should_run_frequent = (
+            evaluators and config.eval_every > 0 and step % config.eval_every == 0
+        )
+        should_run_infrequent = (
+            infrequent_evaluators
+            and config.infrequent_eval_every > 0
+            and step % config.infrequent_eval_every == 0
+        )
+
         # Trigger evaluations BEFORE submitting training operations so they snapshot pre-step weights
         eval_metrics = None
-        if evaluators and config.eval_every > 0 and step % config.eval_every == 0:
+        infrequent_eval_metrics = None
+
+        # Frequent evaluators (NLL, etc) always run inline - they're cheap
+        if should_run_frequent:
             with timed("evals", metrics):
                 eval_metrics = await run_evals(
                     evaluators, training_client, step, prefix="eval/"
                 )
 
-        infrequent_eval_metrics = None
-        if (
-            infrequent_evaluators
-            and config.infrequent_eval_every > 0
-            and step % config.infrequent_eval_every == 0
-        ):
-            with timed("infrequent_evals", metrics):
-                infrequent_eval_metrics = await run_evals(
-                    infrequent_evaluators, training_client, step, prefix="eval/"
-                )
+        if config.full_parallel:
+            # In full_parallel mode, defer only infrequent evaluators
+            if should_run_infrequent:
+                with timed("save_sampling_client", metrics):
+                    sampling_client = (
+                        await training_client.save_weights_and_get_sampling_client_async(
+                            f"deferred_eval_step_{step}"
+                        )
+                    )
+                    deferred_evals.append(
+                        DeferredEval(
+                            step=step,
+                            sampling_client=sampling_client,
+                        )
+                    )
+                    logger.info(f"Saved sampling client for deferred eval at step {step}")
+        else:
+            # Original inline evaluation behavior for infrequent evals
+            if should_run_infrequent:
+                with timed("infrequent_evals", metrics):
+                    infrequent_eval_metrics = await run_evals(
+                        infrequent_evaluators, training_client, step, prefix="eval/"
+                    )
 
         fwd_bwd_future = await training_client.forward_backward_async(
             data, loss_fn="cross_entropy"
@@ -427,10 +468,55 @@ async def main(config: Config):
     if pending_batch is not None:
         await finish_batch(pending_batch)
 
-    infrequent_eval_metrics = await run_evals(  # TODO: run the whole eval (?)
-        evaluators + infrequent_evaluators, training_client, total_steps, prefix="eval/"
-    )
-    ml_logger.log_metrics(infrequent_eval_metrics, step=total_steps)
+    if config.full_parallel and deferred_evals:
+        # Run all deferred infrequent evaluations in parallel
+        logger.info(
+            f"Running {len(deferred_evals)} deferred infrequent evaluations in full parallel mode..."
+        )
+
+        from tinkering.tinker_openthoughts.common import (
+            run_evals_with_sampling_client,
+        )
+
+        async def run_deferred_eval(deferred: DeferredEval) -> dict[str, float]:
+            """Run infrequent evaluators for a single deferred step."""
+            return await run_evals_with_sampling_client(
+                evaluators=infrequent_evaluators,
+                sampling_client=deferred.sampling_client,
+                training_client=training_client,
+                step=deferred.step,
+                prefix="eval/",
+            )
+
+        # Run all deferred infrequent evals in parallel
+        all_deferred_results = await asyncio.gather(
+            *[run_deferred_eval(d) for d in deferred_evals]
+        )
+
+        # Log all deferred metrics
+        for deferred, metrics in zip(deferred_evals, all_deferred_results):
+            if metrics:
+                ml_logger.log_metrics(metrics, step=deferred.step)
+                logger.info(f"Logged deferred infrequent eval metrics for step {deferred.step}")
+
+        # Also run final evaluation at total_steps (both frequent and infrequent)
+        final_eval_metrics = await run_evals(
+            evaluators + infrequent_evaluators,
+            training_client,
+            total_steps,
+            prefix="eval/",
+        )
+        ml_logger.log_metrics(final_eval_metrics, step=total_steps)
+
+    else:
+        # Original behavior: run final eval inline
+        infrequent_eval_metrics = await run_evals(  # TODO: run the whole eval (?)
+            evaluators + infrequent_evaluators,
+            training_client,
+            total_steps,
+            prefix="eval/",
+        )
+        ml_logger.log_metrics(infrequent_eval_metrics, step=total_steps)
 
     if start_epoch < config.epochs:
         await checkpoint_utils.save_checkpoint_async(

@@ -90,6 +90,56 @@ async def run_evals(
             )
         )
 
+    return await _run_evals_impl(
+        evaluators, training_client, sampling_client, step, prefix
+    )
+
+
+@scope
+async def run_evals_with_sampling_client(
+    evaluators: list[Evaluator],
+    sampling_client: tinker.SamplingClient,
+    training_client: tinker.TrainingClient,
+    step: int,
+    prefix: str = "",
+) -> dict[str, float]:
+    """
+    Run evaluators in parallel using a pre-created sampling client.
+
+    This is used in full_parallel mode where sampling clients are created
+    during training and evaluations are deferred until the end.
+
+    Args:
+        evaluators: List of evaluators to run
+        sampling_client: Pre-created sampling client for this step
+        training_client: The training client (for TrainingClientEvaluator)
+        step: The training step this evaluation corresponds to
+        prefix: Prefix for metric names
+    """
+    update_scope_context({"step": step})
+    return await _run_evals_impl(
+        evaluators, training_client, sampling_client, step, prefix
+    )
+
+
+async def _run_evals_impl(
+    evaluators: list[Evaluator],
+    training_client: tinker.TrainingClient,
+    sampling_client: tinker.SamplingClient | None,
+    step: int,
+    prefix: str = "",
+) -> dict[str, float]:
+    """
+    Internal implementation of running evaluators in parallel.
+
+    Args:
+        evaluators: List of evaluators to run
+        training_client: The training client (for TrainingClientEvaluator)
+        sampling_client: Sampling client for SamplingClientEvaluator (may be None if not needed)
+        step: Current training step
+        prefix: Prefix for metric names
+    """
+
     @scope
     async def run_evaluator(evaluator: Evaluator) -> dict[str, float]:
         update_scope_context(
@@ -106,6 +156,11 @@ async def run_evals(
                 return await evaluator(training_client)
         elif isinstance(evaluator, SamplingClientEvaluator):
             update_scope_context({"evaluator_type": "SamplingClientEvaluator"})
+            if sampling_client is None:
+                raise ValueError(
+                    f"SamplingClientEvaluator {type(evaluator).__name__} requires a sampling client, "
+                    "but none was provided."
+                )
             try:
                 return await evaluator(sampling_client, step=step)
             except TypeError:

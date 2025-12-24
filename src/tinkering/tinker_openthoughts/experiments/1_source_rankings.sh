@@ -15,7 +15,7 @@ run_training() {
     echo "----------------------------------------------------------------"
     
     # Run training with default parameters, overriding only dataset_name and wandb_group
-    uv run python src/tinkering/tinker_openthoughts/train.py dataset_name="$SOURCE"
+    uv run python src/tinkering/tinker_openthoughts/train.py dataset_name="$SOURCE" pass_at_k=1 full_parallel=True
 }
 
 run_training "${SOURCES[0]}" &
